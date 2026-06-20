@@ -12,6 +12,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    environment:
+      name: npm publish
+      url: https://www.npmjs.com/package/mealie-mcp-server
     steps:
       - uses: actions/checkout@v4
         with:
