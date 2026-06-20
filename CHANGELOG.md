@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.0.1...v1.0.2) (2026-06-20)
+
+
+### Bug Fixes
+
+* trigger release pipeline again ([ce56b67](https://github.com/timo-reymann/mealie-mcp-server/commit/ce56b67e715d20a1fd28dbb77a9baf7cc0840e6e))
+
 ## [1.0.1](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.0.0...v1.0.1) (2026-06-20)
 
 
