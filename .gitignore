@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.env
+*.log
+.vite/
+.yarn/install-state.gz
+.yarn/build-state.yml
+.yarn/unplugged/
+.pnp.loader.mjs
+package-lock.json
+.idea/
+
+
