@@ -1,3 +1,12 @@
+## [1.0.1](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.0.0...v1.0.1) (2026-06-20)
+
+
+### Bug Fixes
+
+* exclude test files from build output and set dev version ([3462c4d](https://github.com/timo-reymann/mealie-mcp-server/commit/3462c4d45db1e8c1e0cf606dd198f51dae20952b))
+* include test files in ESLint project service ([a86915e](https://github.com/timo-reymann/mealie-mcp-server/commit/a86915e4e8d16ba582e983faf9e88a538928ec3b))
+* trigger release pipeline ([623b491](https://github.com/timo-reymann/mealie-mcp-server/commit/623b491aee3271d62ec7e071f1bf13504a99a6af))
+
 # 1.0.0 (2026-06-20)
 
 
