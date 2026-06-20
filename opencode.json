@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": ["AGENTS.md"],
+  "mcp": {
+    "mealie-mcp-server": {
+      "type": "local",
+      "command": ["yarn", "dev"],
+      "enabled": false
+    }
+  }
+}
