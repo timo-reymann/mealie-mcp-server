@@ -8,6 +8,7 @@ mealie-mcp-server
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for [Mealie](https://github.com/mealie-recipes/mealie) recipe management. Exposes 43 tools and 1 prompt for AI assistants to search, create, and manage recipes, meal plans, shopping lists, categories, and tags.
 
 <p align="center">
+    <img src="https://raw.githubusercontent.com/timo-reymann/mealie-mcp-server/main/.github/images/logo.png" alt="Logo" />
     <br />
     Interact with your Mealie recipe database through AI assistants via the MCP protocol.
 </p>
