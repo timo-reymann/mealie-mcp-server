@@ -37,7 +37,6 @@ coverage/
 
 # Documentation
 *.md
-LICENSE
 CHANGELOG.md
 CONTRIBUTING.md
 API_COVERAGE.md
