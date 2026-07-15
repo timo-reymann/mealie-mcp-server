@@ -1,3 +1,16 @@
+# [1.2.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.1.1...v1.2.0) (2026-07-15)
+
+
+### Bug Fixes
+
+* add id-token write permission for docker job on tag pushes ([6c9d4db](https://github.com/timo-reymann/mealie-mcp-server/commit/6c9d4db11709ccc95775b7e378dd91d3c95ae998)), closes [#1](https://github.com/timo-reymann/mealie-mcp-server/issues/1)
+* run docker job independently on main and tag pushes ([78c2b3e](https://github.com/timo-reymann/mealie-mcp-server/commit/78c2b3e88f062e181db2fb84aab923152a57b000)), closes [#1](https://github.com/timo-reymann/mealie-mcp-server/issues/1)
+
+
+### Features
+
+* add Docker build to CI workflow on release ([08f3fc9](https://github.com/timo-reymann/mealie-mcp-server/commit/08f3fc9597e79b730a367e4a30488c2263e97a81)), closes [#1](https://github.com/timo-reymann/mealie-mcp-server/issues/1)
+
 ## [1.1.1](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.1.0...v1.1.1) (2026-07-15)
 
 
