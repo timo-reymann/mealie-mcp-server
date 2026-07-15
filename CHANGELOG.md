@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.0.2...v1.1.0) (2026-07-15)
+
+
+### Features
+
+* add Docker support with GitHub Actions workflow ([#2](https://github.com/timo-reymann/mealie-mcp-server/issues/2)) ([8f75d9f](https://github.com/timo-reymann/mealie-mcp-server/commit/8f75d9f1844bcecd82a60ad9b21170574cc847bc)), closes [#1](https://github.com/timo-reymann/mealie-mcp-server/issues/1)
+
 ## [1.0.2](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.0.1...v1.0.2) (2026-06-20)
 
 
