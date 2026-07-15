@@ -66,7 +66,7 @@ docker run -d \
   --name mealie-mcp-server \
   -e MEALIE_BASE_URL=https://your-mealie-instance.com \
   -e MEALIE_API_KEY=your-api-key \
-  ghcr.io/timo-reymann/mealie-mcp-server:latest
+  ghcr.io/timo-reymann/mealie-mcp-server:main
 ```
 
 Or with Docker Compose:
@@ -75,7 +75,7 @@ Or with Docker Compose:
 version: '3.8'
 services:
   mealie-mcp-server:
-    image: ghcr.io/timo-reymann/mealie-mcp-server:latest
+    image: ghcr.io/timo-reymann/mealie-mcp-server:main
     environment:
       MEALIE_BASE_URL: https://your-mealie-instance.com
       MEALIE_API_KEY: your-api-key
