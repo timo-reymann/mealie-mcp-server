@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.3.0...v1.4.0) (2026-07-15)
+
+
+### Features
+
+* add new_release_version as explicit Docker tag ([48f087a](https://github.com/timo-reymann/mealie-mcp-server/commit/48f087a4439a5731f29befdbe16f11dc2d376158)), closes [#1](https://github.com/timo-reymann/mealie-mcp-server/issues/1)
+
 # [1.3.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.2.1...v1.3.0) (2026-07-15)
 
 
