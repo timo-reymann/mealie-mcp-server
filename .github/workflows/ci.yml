@@ -76,6 +76,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
+            type=raw,value=${{ steps.semantic.outputs.new_release_version }},enable={{is_default_branch}}
       - name: Build and push Docker image
         if: steps.semantic.outputs.new_release_published == 'true'
         uses: docker/build-push-action@v6
