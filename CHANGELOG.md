@@ -1,3 +1,10 @@
+## [1.2.1](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.2.0...v1.2.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* use workflow_run to trigger Docker after CI completes ([21bb1eb](https://github.com/timo-reymann/mealie-mcp-server/commit/21bb1ebdc0a343f1d583944a5b27fabdc3ef36f8)), closes [#1](https://github.com/timo-reymann/mealie-mcp-server/issues/1)
+
 # [1.2.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.1.1...v1.2.0) (2026-07-15)
 
 
