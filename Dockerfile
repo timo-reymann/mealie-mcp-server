@@ -8,6 +8,9 @@ WORKDIR /app
 # Copy package files
 COPY package.json yarn.lock ./
 
+# Copy LICENSE early so it's available in builder
+COPY LICENSE ./
+
 # Enable Corepack and install dependencies
 RUN corepack enable && \
     yarn install --immutable --production=false
@@ -34,12 +37,10 @@ LABEL org.opencontainers.image.title="mealie-mcp-server" \
 
 WORKDIR /app
 
-# Copy built files from builder
+# Copy built files and LICENSE from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
-
-# Copy LICENSE directly from context to /app/LICENSE
-COPY LICENSE /app/LICENSE
+COPY --from=builder /app/LICENSE ./LICENSE
 
 # Install only production dependencies
 RUN corepack enable && \
