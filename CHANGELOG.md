@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.2.1...v1.3.0) (2026-07-15)
+
+
+### Features
+
+* use semantic-release-action with conditional Docker build ([4be2dd9](https://github.com/timo-reymann/mealie-mcp-server/commit/4be2dd9b12ae492a1ea46cdb1557e72038ed24cd)), closes [#1](https://github.com/timo-reymann/mealie-mcp-server/issues/1)
+
 ## [1.2.1](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.2.0...v1.2.1) (2026-07-15)
 
 
