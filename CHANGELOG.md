@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.1.0...v1.1.1) (2026-07-15)
+
+
+### Bug Fixes
+
+* Fix skip ci ([a4bd0ad](https://github.com/timo-reymann/mealie-mcp-server/commit/a4bd0adbd3b6117f480bedc2ea3636a6a46133b3))
+
 # [1.1.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.0.2...v1.1.0) (2026-07-15)
 
 
