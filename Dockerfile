@@ -37,7 +37,9 @@ WORKDIR /app
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/LICENSE ./LICENSE
+
+# Copy LICENSE directly from context (not from builder)
+COPY LICENSE ./
 
 # Install only production dependencies
 RUN corepack enable && \
