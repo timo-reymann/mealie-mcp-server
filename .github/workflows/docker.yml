@@ -2,13 +2,7 @@ name: Docker
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
-  workflow_run:
-    workflows: ["CI"]
-    types:
-      - completed
-    branches: [main]
 
 env:
   REGISTRY: ghcr.io
@@ -16,9 +10,6 @@ env:
 
 jobs:
   build:
-    if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,12 +36,10 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=sha
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
