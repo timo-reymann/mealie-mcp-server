@@ -40,7 +40,8 @@ export async function getRecipesBatch(
   return map;
 }
 
-export async function createRecipe(name: string): Promise<Record<string, unknown>> {
+// Mealie's POST /api/recipes responds with the created recipe's slug as a bare JSON string
+export async function createRecipe(name: string): Promise<string> {
   return apiPost('/api/recipes', { name });
 }
 

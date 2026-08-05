@@ -116,17 +116,18 @@ export function registerRecipeTools(server: McpServer) {
     },
     async ({ name, ingredients, instructions }) => {
       try {
-        let result = await recipesApi.createRecipe(name);
+        const slug = await recipesApi.createRecipe(name);
+        let result: unknown = slug;
 
         if (ingredients || instructions) {
-          const slug = result.slug as string;
           const current = await recipesApi.getRecipe(slug);
           const updatedData = { ...current };
           if (ingredients) {
-            updatedData.recipeIngredient = ingredients;
+            // Mealie expects structured objects, not bare strings
+            updatedData.recipeIngredient = ingredients.map((note) => ({ note }));
           }
           if (instructions) {
-            updatedData.recipeInstructions = instructions;
+            updatedData.recipeInstructions = instructions.map((text) => ({ text }));
           }
           result = await recipesApi.updateRecipe(slug, updatedData);
         }
