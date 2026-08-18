@@ -55,16 +55,20 @@ function toMealieIngredient(input: RecipeIngredientInput): Record<string, unknow
 }
 
 /**
- * Replaces a recipe's complete recipeIngredient collection. Mealie's recipe PUT is a full
- * replace, so every other field from the fetched recipe is echoed back unchanged — only
- * recipeIngredient is swapped for the supplied list.
+ * Replaces a recipe's complete recipeIngredient collection via PATCH, not PUT. Mealie's PATCH
+ * route (recipe_service.patch_one) calls patch_data.model_dump(exclude_unset=True) before
+ * persisting, so only keys actually present in our request body reach the repository update —
+ * unlike PUT (update_one), which persists the full Recipe object it receives. recipe_instructions
+ * is a SQLAlchemy relationship with cascade="all, delete-orphan"; reassigning it (as PUT does,
+ * even when echoing back the exact same data) deletes and recreates every instruction row with a
+ * fresh id. Never including recipeInstructions in the PATCH body at all means that relationship
+ * is never touched, so instruction rows and their ids survive untouched. Sending only
+ * { recipeIngredient } also means we never need to fetch the recipe first.
  */
 export async function updateRecipeIngredients(
   slug: string,
   ingredients: RecipeIngredientInput[],
 ): Promise<Record<string, unknown>> {
   const recipeIngredient = ingredients.map(toMealieIngredient);
-  const recipe = await recipesApi.getRecipe(slug);
-  const updated = { ...recipe, recipeIngredient };
-  return recipesApi.updateRecipe(slug, updated);
+  return recipesApi.patchRecipe(slug, { recipeIngredient });
 }

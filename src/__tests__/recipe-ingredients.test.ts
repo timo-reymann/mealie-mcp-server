@@ -1,56 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../api/recipes.js', () => ({
-  getRecipe: vi.fn(),
-  updateRecipe: vi.fn(),
+  patchRecipe: vi.fn(),
 }));
 
 import * as recipesApi from '../api/recipes.js';
 import { updateRecipeIngredients } from '../lib/recipe-ingredients.js';
 
-const mockGetRecipe = vi.mocked(recipesApi.getRecipe);
-const mockUpdateRecipe = vi.mocked(recipesApi.updateRecipe);
-
-function baseRecipe(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    id: 'recipe-id-1',
-    slug: 'chicken-shawarma',
-    name: 'Chicken Shawarma',
-    description: 'A tasty dish',
-    recipeYield: '4 servings',
-    recipeServings: 4,
-    totalTime: '30 minutes',
-    prepTime: '10 minutes',
-    cookTime: '20 minutes',
-    recipeIngredient: [
-      { referenceId: 'orig-ref-1', quantity: 1, unit: null, food: null, note: 'old ingredient one', display: '', title: null, originalText: null },
-      { referenceId: 'orig-ref-2', quantity: 2, unit: null, food: null, note: 'old ingredient two', display: '', title: null, originalText: null },
-      { referenceId: 'orig-ref-3', quantity: 3, unit: null, food: null, note: 'old ingredient three', display: '', title: null, originalText: null },
-    ],
-    recipeInstructions: [{ id: 'step-1', text: 'Marinate the chicken' }, { id: 'step-2', text: 'Grill until done' }],
-    nutrition: { calories: '450' },
-    settings: { public: true, disableComments: false },
-    image: 'chicken-shawarma.jpg',
-    notes: [{ title: 'Tip', text: 'Use fresh garlic' }],
-    tools: [{ id: 'tool-1', name: 'Grill', slug: 'grill' }],
-    rating: 4.5,
-    assets: [{ name: 'photo.jpg' }],
-    orgURL: 'https://example.com/original',
-    recipeCategory: [{ id: 'cat-1', name: 'Dinner', slug: 'dinner' }],
-    tags: [{ id: 'tag-1', name: 'Quick', slug: 'quick' }],
-    ...overrides,
-  };
-}
+const mockPatchRecipe = vi.mocked(recipesApi.patchRecipe);
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockUpdateRecipe.mockImplementation((_slug: string, data: Record<string, unknown>) => Promise.resolve(data));
+  mockPatchRecipe.mockImplementation((_slug: string, data: Record<string, unknown>) => Promise.resolve(data));
 });
 
 describe('updateRecipeIngredients — replacing structured ingredients', () => {
   it('replaces ingredients with structured food/unit associations, preserving all sub-fields', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
-
     await updateRecipeIngredients('chicken-shawarma', [
       {
         quantity: 2,
@@ -66,8 +31,8 @@ describe('updateRecipeIngredients — replacing structured ingredients', () => {
       },
     ]);
 
-    expect(mockUpdateRecipe).toHaveBeenCalledTimes(1);
-    const [slugArg, payload] = mockUpdateRecipe.mock.calls[0];
+    expect(mockPatchRecipe).toHaveBeenCalledTimes(1);
+    const [slugArg, payload] = mockPatchRecipe.mock.calls[0];
     expect(slugArg).toBe('chicken-shawarma');
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients).toHaveLength(1);
@@ -84,62 +49,58 @@ describe('updateRecipeIngredients — replacing structured ingredients', () => {
   });
 });
 
-describe('updateRecipeIngredients — preserves unrelated recipe fields', () => {
-  it('leaves every non-ingredient field exactly as fetched', async () => {
-    const recipe = baseRecipe();
-    mockGetRecipe.mockResolvedValue(recipe);
-
+// Regression coverage for the real-world finding that PUT-based full recipe replacement
+// regenerated recipeInstructions[].id on every call, even though the instructions themselves
+// were never touched. Root cause: Mealie's PUT route (update_one) persists the entire incoming
+// Recipe object, and recipe_instructions is a SQLAlchemy relationship with
+// cascade="all, delete-orphan" — reassigning it (even to an unchanged copy) deletes and recreates
+// every row with a fresh id. Mealie's PATCH route (patch_one) instead calls
+// patch_data.model_dump(exclude_unset=True) before persisting, so only keys actually present in
+// the request body are touched. The fix: send only { recipeIngredient }, never fetch or echo back
+// the rest of the recipe, so recipeInstructions (and everything else) can never be reassigned.
+describe('updateRecipeIngredients — unrelated fields cannot be touched (PATCH, not PUT)', () => {
+  it('sends a PATCH body containing only recipeIngredient — no other recipe field', async () => {
     await updateRecipeIngredients('chicken-shawarma', [{ note: 'new single ingredient' }]);
 
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
-    expect(payload.name).toBe(recipe.name);
-    expect(payload.description).toBe(recipe.description);
-    expect(payload.recipeInstructions).toEqual(recipe.recipeInstructions);
-    expect(payload.recipeCategory).toEqual(recipe.recipeCategory);
-    expect(payload.tags).toEqual(recipe.tags);
-    expect(payload.recipeServings).toBe(recipe.recipeServings);
-    expect(payload.prepTime).toBe(recipe.prepTime);
-    expect(payload.cookTime).toBe(recipe.cookTime);
-    expect(payload.totalTime).toBe(recipe.totalTime);
-    expect(payload.nutrition).toEqual(recipe.nutrition);
-    expect(payload.notes).toEqual(recipe.notes);
-    expect(payload.settings).toEqual(recipe.settings);
-    expect(payload.image).toBe(recipe.image);
-    expect(payload.tools).toEqual(recipe.tools);
-    expect(payload.rating).toBe(recipe.rating);
-    expect(payload.assets).toEqual(recipe.assets);
+    expect(mockPatchRecipe).toHaveBeenCalledTimes(1);
+    const [slugArg, payload] = mockPatchRecipe.mock.calls[0];
+    expect(slugArg).toBe('chicken-shawarma');
+    expect(Object.keys(payload)).toEqual(['recipeIngredient']);
+  });
+
+  it('keeps sending only recipeIngredient across repeated updates — no unrelated-field or id churn between writes', async () => {
+    await updateRecipeIngredients('chicken-shawarma', [{ note: 'first write' }]);
+    await updateRecipeIngredients('chicken-shawarma', [{ note: 'second write' }]);
+
+    expect(mockPatchRecipe).toHaveBeenCalledTimes(2);
+    for (const [, payload] of mockPatchRecipe.mock.calls) {
+      expect(Object.keys(payload)).toEqual(['recipeIngredient']);
+    }
   });
 });
 
 describe('updateRecipeIngredients — replaces rather than appends', () => {
-  it('drops all previous ingredients when a smaller complete list is supplied', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
-
+  it('the supplied list is sent verbatim as the complete new collection', async () => {
     await updateRecipeIngredients('chicken-shawarma', [{ note: 'new ingredient A' }, { note: 'new ingredient B' }]);
 
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients).toHaveLength(2);
     expect(ingredients.map((i) => i.note)).toEqual(['new ingredient A', 'new ingredient B']);
-    expect(ingredients.some((i) => i.note === 'old ingredient one')).toBe(false);
-    expect(ingredients.some((i) => i.note === 'old ingredient two')).toBe(false);
-    expect(ingredients.some((i) => i.note === 'old ingredient three')).toBe(false);
   });
 });
 
 describe('updateRecipeIngredients — preserves false/zero values', () => {
   it('does not drop an explicit quantity of 0', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await updateRecipeIngredients('chicken-shawarma', [{ quantity: 0, note: 'a pinch' }]);
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients[0].quantity).toBe(0);
   });
 
   it('does not drop an explicit empty-string note or display', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await updateRecipeIngredients('chicken-shawarma', [{ note: '', display: '' }]);
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients[0].note).toBe('');
     expect(ingredients[0].display).toBe('');
@@ -148,17 +109,15 @@ describe('updateRecipeIngredients — preserves false/zero values', () => {
 
 describe('updateRecipeIngredients — null/optional fields', () => {
   it('sends null for note/title/originalText when explicitly requested', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await updateRecipeIngredients('chicken-shawarma', [{ note: null, title: null, originalText: null }]);
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients[0]).toMatchObject({ note: null, title: null, originalText: null });
   });
 
   it('omits quantity/note/display/title/originalText/referenceId entirely when not supplied', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await updateRecipeIngredients('chicken-shawarma', [{}]);
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients[0]).not.toHaveProperty('quantity');
     expect(ingredients[0]).not.toHaveProperty('note');
@@ -170,87 +129,89 @@ describe('updateRecipeIngredients — null/optional fields', () => {
   });
 
   it('preserves an explicit title used as a section heading', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await updateRecipeIngredients('chicken-shawarma', [{ title: 'For the sauce' }]);
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients[0].title).toBe('For the sauce');
   });
 });
 
+// Mealie's RecipeIngredientModel has no "display" database column at all (confirmed against the
+// ORM model source) — it's a purely computed field. RecipeIngredient's `format_display`
+// model_validator recomputes it from quantity/unit/food/note on every read whenever the value is
+// falsy, and since nothing ever persists our supplied value, it reads back falsy on every
+// subsequent load and gets recomputed every time. We still accept and forward whatever the
+// caller supplies (Mealie's schema accepts it and this may change in a future Mealie version),
+// but it should never be relied upon to round-trip literally.
+describe('updateRecipeIngredients — display is forwarded but not guaranteed to persist', () => {
+  it('forwards a caller-supplied display value in the outgoing payload as-is', async () => {
+    await updateRecipeIngredients('chicken-shawarma', [{ display: 'CUSTOM TEST DISPLAY' }]);
+    const [, payload] = mockPatchRecipe.mock.calls[0];
+    const ingredients = payload.recipeIngredient as Record<string, unknown>[];
+    expect(ingredients[0].display).toBe('CUSTOM TEST DISPLAY');
+  });
+});
+
 describe('updateRecipeIngredients — alias/name independence', () => {
   it('keeps the food id distinct from its display name in the transformed payload', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await updateRecipeIngredients('chicken-shawarma', [{ foodId: 'food-abc', foodName: 'Green Onion' }]);
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients[0].food).toEqual({ id: 'food-abc', name: 'Green Onion' });
   });
 
   it('keeps the unit id distinct from its display name in the transformed payload', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await updateRecipeIngredients('chicken-shawarma', [{ unitId: 'unit-abc', unitName: 'Tablespoon' }]);
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
+    const [, payload] = mockPatchRecipe.mock.calls[0];
     const ingredients = payload.recipeIngredient as Record<string, unknown>[];
     expect(ingredients[0].unit).toEqual({ id: 'unit-abc', name: 'Tablespoon' });
   });
 
   it('rejects a foodId given without a foodName', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await expect(updateRecipeIngredients('chicken-shawarma', [{ foodId: 'food-abc' }])).rejects.toThrow(/foodName/);
-    expect(mockUpdateRecipe).not.toHaveBeenCalled();
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
   });
 
   it('rejects a foodName given without a foodId', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await expect(updateRecipeIngredients('chicken-shawarma', [{ foodName: 'Onion' }])).rejects.toThrow(/foodId/);
-    expect(mockUpdateRecipe).not.toHaveBeenCalled();
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
   });
 
   it('rejects a unitId given without a unitName', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await expect(updateRecipeIngredients('chicken-shawarma', [{ unitId: 'unit-abc' }])).rejects.toThrow(/unitName/);
-    expect(mockUpdateRecipe).not.toHaveBeenCalled();
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
   });
 
   it('rejects a unitName given without a unitId', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
     await expect(updateRecipeIngredients('chicken-shawarma', [{ unitName: 'Tablespoon' }])).rejects.toThrow(/unitId/);
-    expect(mockUpdateRecipe).not.toHaveBeenCalled();
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
   });
 
   it('validates ingredients before making any network call', async () => {
     await expect(updateRecipeIngredients('chicken-shawarma', [{ foodId: 'food-abc' }])).rejects.toThrow();
-    expect(mockGetRecipe).not.toHaveBeenCalled();
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
   });
 });
 
 describe('updateRecipeIngredients — empty ingredient collection', () => {
-  it('clears all ingredients when given an empty array, leaving other fields intact', async () => {
-    const recipe = baseRecipe();
-    mockGetRecipe.mockResolvedValue(recipe);
-
+  it('sends an empty recipeIngredient array to intentionally clear all ingredients', async () => {
     await updateRecipeIngredients('chicken-shawarma', []);
 
-    const [, payload] = mockUpdateRecipe.mock.calls[0];
-    expect(payload.recipeIngredient).toEqual([]);
-    expect(payload.name).toBe(recipe.name);
-    expect(payload.recipeInstructions).toEqual(recipe.recipeInstructions);
+    const [, payload] = mockPatchRecipe.mock.calls[0];
+    expect(payload).toEqual({ recipeIngredient: [] });
   });
 });
 
 describe('updateRecipeIngredients — recipe not found', () => {
   it('propagates the same not-found error as other recipe tools', async () => {
-    mockGetRecipe.mockRejectedValue(new Error('Mealie API error 404: Not Found'));
+    mockPatchRecipe.mockRejectedValue(new Error('Mealie API error 404: Not Found'));
     await expect(updateRecipeIngredients('missing-recipe', [{ note: 'x' }])).rejects.toThrow(/404/);
-    expect(mockUpdateRecipe).not.toHaveBeenCalled();
   });
 });
 
 describe('updateRecipeIngredients — Mealie API failure', () => {
-  it('propagates an error from the update call without masquerading as success', async () => {
-    mockGetRecipe.mockResolvedValue(baseRecipe());
-    mockUpdateRecipe.mockRejectedValue(new Error('Mealie API error 500: Internal Server Error'));
+  it('propagates an error from the patch call without masquerading as success', async () => {
+    mockPatchRecipe.mockRejectedValue(new Error('Mealie API error 500: Internal Server Error'));
     await expect(updateRecipeIngredients('chicken-shawarma', [{ note: 'x' }])).rejects.toThrow(/500/);
   });
 });
