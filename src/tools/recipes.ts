@@ -387,15 +387,17 @@ export function registerRecipeTools(server: McpServer) {
   server.tool(
     'update_recipe_ingredients',
     'Replaces the complete structured ingredient collection (recipeIngredient) of an existing recipe, leaving ' +
-      'every other recipe field untouched — including recipe instructions and their IDs, which are structurally ' +
-      'guaranteed not to change since this tool never sends or fetches anything besides the ingredient list. ' +
-      'Low-level write primitive: it does not parse ingredient text and does not look up or create foods/units — ' +
-      'foodId/unitId must already reference existing Mealie entities (resolve them first with get_foods/get_food ' +
-      'or Mealie\'s unit endpoints). The ingredients array is the recipe\'s complete new ingredient list, not a ' +
-      'patch: any ingredient not included is removed, and an empty array clears all ingredients. Call ' +
-      'get_recipe_detailed first to see the recipe\'s current ingredients, referenceIds, and other fields before ' +
-      'replacing them. Note: each ingredient\'s "display" field is never actually persisted by Mealie — it is ' +
-      'always recomputed from quantity/unit/food/note, regardless of what is supplied here.',
+      'every other recipe field untouched (name, description, categories, tags, settings, nutrition, etc.). ' +
+      'Known Mealie limitation, not caused by this tool: every recipe instruction\'s ID is regenerated on any ' +
+      'recipe update (PATCH or PUT), including this one — instruction text/title/summary/ingredient-references ' +
+      'are preserved correctly, only the IDs change. Low-level write primitive: it does not parse ingredient ' +
+      'text and does not look up or create foods/units — foodId/unitId must already reference existing Mealie ' +
+      'entities (resolve them first with get_foods/get_food or Mealie\'s unit endpoints). The ingredients array ' +
+      'is the recipe\'s complete new ingredient list, not a patch: any ingredient not included is removed, and ' +
+      'an empty array clears all ingredients. Call get_recipe_detailed first to see the recipe\'s current ' +
+      'ingredients, referenceIds, and other fields before replacing them. Note: each ingredient\'s "display" ' +
+      'field is never actually persisted by Mealie — it is always recomputed from quantity/unit/food/note, ' +
+      'regardless of what is supplied here.',
     {
       slug: z.string().describe('Slug of the recipe to update.'),
       ingredients: z

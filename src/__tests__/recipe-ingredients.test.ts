@@ -49,16 +49,18 @@ describe('updateRecipeIngredients — replacing structured ingredients', () => {
   });
 });
 
-// Regression coverage for the real-world finding that PUT-based full recipe replacement
-// regenerated recipeInstructions[].id on every call, even though the instructions themselves
-// were never touched. Root cause: Mealie's PUT route (update_one) persists the entire incoming
-// Recipe object, and recipe_instructions is a SQLAlchemy relationship with
-// cascade="all, delete-orphan" — reassigning it (even to an unchanged copy) deletes and recreates
-// every row with a fresh id. Mealie's PATCH route (patch_one) instead calls
-// patch_data.model_dump(exclude_unset=True) before persisting, so only keys actually present in
-// the request body are touched. The fix: send only { recipeIngredient }, never fetch or echo back
-// the rest of the recipe, so recipeInstructions (and everything else) can never be reassigned.
-describe('updateRecipeIngredients — unrelated fields cannot be touched (PATCH, not PUT)', () => {
+// PATCH keeps the outgoing payload down to exactly { recipeIngredient }, which is what protects
+// unrelated *scalar* recipe fields (name, description, settings, nutrition, categories/tags, ...)
+// — confirmed correct by live testing against a real Mealie instance.
+//
+// IMPORTANT LIMITATION, also confirmed by live testing (both omitting recipeInstructions from the
+// request AND explicitly echoing it back with matching ids): recipeInstructions[].id still gets
+// regenerated on every recipe PUT *or* PATCH, regardless of payload shape. This is a Mealie-side
+// bug, not something fixable from the payload we send — see the comment above
+// updateRecipeIngredients() in recipe-ingredients.ts for the full root-cause trace. These mocked
+// tests can only verify what our own code sends; they cannot observe or claim to fix Mealie's
+// server-side persistence behavior for recipeInstructions.
+describe('updateRecipeIngredients — payload never contains unrelated scalar fields (PATCH, not PUT)', () => {
   it('sends a PATCH body containing only recipeIngredient — no other recipe field', async () => {
     await updateRecipeIngredients('chicken-shawarma', [{ note: 'new single ingredient' }]);
 
@@ -68,7 +70,7 @@ describe('updateRecipeIngredients — unrelated fields cannot be touched (PATCH,
     expect(Object.keys(payload)).toEqual(['recipeIngredient']);
   });
 
-  it('keeps sending only recipeIngredient across repeated updates — no unrelated-field or id churn between writes', async () => {
+  it('keeps sending only recipeIngredient across repeated updates — no unrelated scalar field is ever included', async () => {
     await updateRecipeIngredients('chicken-shawarma', [{ note: 'first write' }]);
     await updateRecipeIngredients('chicken-shawarma', [{ note: 'second write' }]);
 

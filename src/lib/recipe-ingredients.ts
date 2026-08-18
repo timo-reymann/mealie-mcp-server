@@ -55,15 +55,26 @@ function toMealieIngredient(input: RecipeIngredientInput): Record<string, unknow
 }
 
 /**
- * Replaces a recipe's complete recipeIngredient collection via PATCH, not PUT. Mealie's PATCH
- * route (recipe_service.patch_one) calls patch_data.model_dump(exclude_unset=True) before
- * persisting, so only keys actually present in our request body reach the repository update —
- * unlike PUT (update_one), which persists the full Recipe object it receives. recipe_instructions
- * is a SQLAlchemy relationship with cascade="all, delete-orphan"; reassigning it (as PUT does,
- * even when echoing back the exact same data) deletes and recreates every instruction row with a
- * fresh id. Never including recipeInstructions in the PATCH body at all means that relationship
- * is never touched, so instruction rows and their ids survive untouched. Sending only
- * { recipeIngredient } also means we never need to fetch the recipe first.
+ * Replaces a recipe's complete recipeIngredient collection via PATCH, not PUT. PATCH is still the
+ * right choice — Mealie's generic repository patch() merges a partial payload onto a fresh full
+ * snapshot of the entity and only then persists it, so unrelated *scalar* fields (name,
+ * description, settings, nutrition, categories/tags, ...) are correctly left alone whether or not
+ * they're in our request body. Sending only { recipeIngredient } also means we never need to fetch
+ * the recipe first.
+ *
+ * IMPORTANT, confirmed by live testing against a real Mealie instance (both omitting
+ * recipeInstructions from the request and explicitly echoing it back with matching ids):
+ * recipeInstructions[].id (and likely other one-to-many child collections on Recipe) get
+ * regenerated on EVERY recipe PUT or PATCH, regardless of payload shape. Root cause traced into
+ * Mealie's own source: both routes funnel into RepositoryRecipes.update(), which calls
+ * `entry.update(session=..., **new_data)`; BaseMixins.update() is defined as
+ * `self.__init__(*args, **kwargs)` — it re-runs the SQLAlchemy model's constructor on the
+ * already-persisted row, and recipe_instructions is declared with
+ * cascade="all, delete-orphan", so every instruction row is deleted and recreated with a fresh id
+ * as a side effect, even when the constructor is handed the exact same ids back. This is a
+ * pre-existing Mealie limitation, not something this tool introduces or can avoid — it would
+ * happen from any client, including Mealie's own UI. Instruction content (text/title/summary/
+ * ingredientReferences) is preserved correctly; only the ids churn.
  */
 export async function updateRecipeIngredients(
   slug: string,
