@@ -2,15 +2,15 @@
 
 | Category | Tools |
 |---|---|
-| Recipes | 15 |
+| Recipes | 16 |
 | Meal Plans | 5 |
 | Categories | 7 |
 | Tags | 7 |
 | Shopping Lists | 13 |
 | Foods | 5 |
-| **Total** | **52** |
+| **Total** | **53** |
 
-## Recipe Operations (15)
+## Recipe Operations (16)
 
 - `get_recipes` — `GET /api/recipes` (paginated, search, filter by tags/categories). `categories`/`tags` are resolved by name, slug, or ID (case-insensitive) against `GET /api/organizers/categories`/`GET /api/organizers/tags` before the request, since Mealie's own query params only match by exact slug/ID and silently skip the filter (returning the unfiltered library) when a name doesn't match — unresolved values fail the call clearly instead.
 - `find_recipes_for_ingredients` — Composite: `GET /api/foods` (search) to resolve human-readable ingredient names to Mealie Food IDs, then either `GET /api/recipes/suggestions` (Mealie's Recipe Finder, ranked by fewest missing ingredients — one call per resolved food, run concurrently), `GET /api/recipes` with `foods`/`requireAllFoods` (strict AND match across every resolved ingredient), or `GET /api/recipes?search=` (free-text fallback, one call per unresolved term) depending on resolution results and `requireAllIngredients`. `categories`/`tags` are resolved the same way as `get_recipes`. Never fetches the full food or recipe library.
@@ -21,6 +21,7 @@
 - `get_recipes_for_classification` — Read-only, paginated: `GET /api/recipes` (ordered by `createdAt`, page-scanned with a stable opaque cursor) to cheaply filter by taxonomy state using the embedded `recipeCategory`/`tags`, then `GET /api/recipes/{slug}` for matches only, with bounded concurrency (4 in flight, shared with `get_recipes_batch`). Returns a compact projection (ingredients/instructions as plain strings, existing categories/tags, no nutrition/settings/assets/images/comments) plus per-recipe `failures`. Pairs with `update_recipe_taxonomy_batch` to apply the resulting classifications.
 - `create_recipe` — `POST /api/recipes` + optional `PUT` for ingredients/instructions
 - `patch_recipe` — `PATCH /api/recipes/{slug}` (partial update). Also accepts optional `categories`/`tags`/`taxonomyMode`/`createMissing`; when present, `GET /api/recipes/{slug}` is used to resolve current categories/tags for merge mode and the resolved `recipeCategory`/`tags` collections are folded into the same `PATCH` call as the other fields.
+- `update_recipe_ingredients` — `GET /api/recipes/{slug}` to fetch the complete current recipe, then `PUT /api/recipes/{slug}` with every field echoed back unchanged except `recipeIngredient`, which is replaced wholesale with the supplied list. `foodId`/`unitId` + `foodName`/`unitName` pairs are transformed into the minimal `{id, name}` object shape Mealie's embedded `food`/`unit` fields expect; this tool never resolves or creates foods/units itself.
 - `update_recipe_taxonomy` — Composite: `GET /api/recipes/{slug}` to read current categories/tags (and to resolve requested names/slugs/IDs against `GET /api/organizers/categories`/`GET /api/organizers/tags`, optionally `POST`-creating missing ones), then a single `PATCH /api/recipes/{slug}` with only the changed `recipeCategory`/`tags` fields
 - `update_recipe_taxonomy_batch` — Runs `update_recipe_taxonomy` for multiple recipes with bounded concurrency (5 at a time), returning a success/error result per recipe
 - `duplicate_recipe` — `POST /api/recipes/{slug}/duplicate`

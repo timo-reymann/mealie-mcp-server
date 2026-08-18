@@ -10,6 +10,7 @@ import {
   CLASSIFICATION_MAX_LIMIT,
   CLASSIFICATION_DEFAULT_TAXONOMY_STATE,
 } from '../lib/recipe-classification.js';
+import { updateRecipeIngredients } from '../lib/recipe-ingredients.js';
 
 const taxonomyModeSchema = z
   .enum(['merge', 'replace'])
@@ -43,6 +44,48 @@ const tagsParamSchema = z
       'broad groupings (e.g. "Dinner", "Dessert"). Omit this field to leave the recipe\'s tags unchanged. ' +
       'Passing an empty array with mode "replace" clears all tags from the recipe — use with care.',
   );
+
+const recipeIngredientInputSchema = z.object({
+  quantity: z
+    .number()
+    .nullable()
+    .optional()
+    .describe('Numeric amount, e.g. 2. 0 is a valid explicit value; omit to use Mealie\'s default (0).'),
+  unitId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe('UUID of an existing unit. Must be given together with unitName — never alone.'),
+  unitName: z.string().optional().describe('Human-readable name of the unit identified by unitId. Required whenever unitId is given.'),
+  foodId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      'UUID of an existing food (see get_foods/get_food). Must be given together with foodName — never alone. ' +
+        'This tool never looks up or creates foods; resolve the food first.',
+    ),
+  foodName: z.string().optional().describe('Human-readable name of the food identified by foodId. Required whenever foodId is given.'),
+  note: z.string().nullable().optional().describe('Free-text note for this ingredient line.'),
+  display: z
+    .string()
+    .optional()
+    .describe('Fully composed display string, e.g. "2 tablespoons olive oil". Omit to use Mealie\'s default ("").'),
+  originalText: z.string().nullable().optional().describe('The original, unparsed ingredient text, if any.'),
+  title: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Section heading for this ingredient line (e.g. "For the sauce"); omit or use null for a normal ingredient.'),
+  referenceId: z
+    .string()
+    .uuid()
+    .optional()
+    .describe(
+      'Stable UUID for this ingredient line. Recipe instructions can reference ingredients by this ID — pass ' +
+        'back the value from a prior get_recipe_detailed to preserve those links; omit to let Mealie assign a new one.',
+    ),
+});
 
 const conciseFields = [
   'name',
@@ -331,6 +374,35 @@ export function registerRecipeTools(server: McpServer) {
 
         const result = await recipesApi.patchRecipe(slug, data);
         return successResponse(taxonomyChanges ? { ...result, taxonomyChanges } : result);
+      } catch (error) {
+        return errorResponse(error);
+      }
+    },
+  );
+
+  server.tool(
+    'update_recipe_ingredients',
+    'Replaces the complete structured ingredient collection (recipeIngredient) of an existing recipe, leaving ' +
+      'every other recipe field untouched. Low-level write primitive: it does not parse ingredient text and does ' +
+      'not look up or create foods/units — foodId/unitId must already reference existing Mealie entities ' +
+      '(resolve them first with get_foods/get_food or Mealie\'s unit endpoints). The ingredients array is the ' +
+      'recipe\'s complete new ingredient list, not a patch: any ingredient not included is removed, and an empty ' +
+      'array clears all ingredients. Call get_recipe_detailed first to see the recipe\'s current ingredients, ' +
+      'referenceIds, and other fields before replacing them.',
+    {
+      slug: z.string().describe('Slug of the recipe to update.'),
+      ingredients: z
+        .array(recipeIngredientInputSchema)
+        .describe(
+          'Complete desired ingredient collection, in order — replaces the recipe\'s entire recipeIngredient ' +
+            'list. Pass every ingredient that should remain, not just the ones changing. An empty array clears ' +
+            'all ingredients.',
+        ),
+    },
+    async ({ slug, ingredients }) => {
+      try {
+        const result = await updateRecipeIngredients(slug, ingredients);
+        return successResponse(result);
       } catch (error) {
         return errorResponse(error);
       }
