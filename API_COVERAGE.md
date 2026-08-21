@@ -8,7 +8,8 @@
 | Tags | 7 |
 | Shopping Lists | 13 |
 | Foods | 5 |
-| **Total** | **53** |
+| Units | 5 |
+| **Total** | **58** |
 
 ## Recipe Operations (16)
 
@@ -58,3 +59,11 @@
 - `create_food` — `POST /api/foods`; converts `aliases: string[]` to Mealie's `{ name }[]` alias shape
 - `update_food` — `GET /api/foods/{foodId}` to fetch the current record, merged with the requested changes (Mealie's `PUT` is a full replace of the create-shape fields), then `PUT /api/foods/{foodId}`; the existing `id` is always echoed back (Mealie's update schema includes it and defaults to `null` if omitted, which Mealie then writes into the row), while response-only fields (`label`, `createdAt`, `updatedAt`) are stripped before the `PUT`
 - `delete_food` — `DELETE /api/foods/{foodId}`
+
+## Unit Operations (5)
+
+- `get_units` — `GET /api/units` (paginated, search matches name/pluralName/abbreviation/pluralAbbreviation per Mealie's behavior — not aliases)
+- `get_unit` — `GET /api/units/{unitId}`
+- `create_unit` — `POST /api/units`; converts `aliases: string[]` to Mealie's `{ name }[]` alias shape. Mealie itself (not this tool) auto-populates `standardQuantity`/`standardUnit` when the new unit's name/abbreviation matches one of its built-in standardized units, unless both are already supplied
+- `update_unit` — `GET /api/units/{unitId}` to fetch the current record, merged with the requested changes (Mealie's `PUT` is a full replace of the create-shape fields), then `PUT /api/units/{unitId}`; the existing `id` is echoed back defensively (mirroring `update_food`), while response-only fields (`createdAt`, `updatedAt`) are stripped before the `PUT`
+- `delete_unit` — `DELETE /api/units/{unitId}`

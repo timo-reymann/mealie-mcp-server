@@ -125,9 +125,51 @@ Foods are Mealie's reusable structured ingredient entities (e.g. "onion", "chick
 // 4. The resulting food id is then used later by a structured ingredient workflow
 ```
 
+## Resolving or Creating a Unit
+
+Units are Mealie's canonical ingredient unit vocabulary (e.g. "tablespoon", "cup", "gram") — the shared reference objects a parsed recipe ingredient's `unit` points to, analogous to [Resolving or Creating a Food](#resolving-or-creating-a-food) above for the ingredient's food. They are shared across every recipe that uses them: renaming or repurposing a unit changes how every ingredient that references it displays. Search existing units before creating a new one.
+
+- `get_units` — Lists and searches units (`search`, `page`, `perPage`). The primary tool for resolving a human-readable unit name to an existing unit ID. `search` matches against `name`, `pluralName`, `abbreviation`, and `pluralAbbreviation` — **not** `aliases`.
+- `get_unit` — Retrieves a single unit by ID, including its aliases, abbreviations, and standard-quantity conversion metadata.
+- `create_unit` — Creates a unit. Supports `aliases` (plain `string[]`), `abbreviation`/`pluralAbbreviation`, `useAbbreviation`, `fraction`, and `standardQuantity`/`standardUnit` at creation time.
+- `update_unit` — Updates a unit's `name`, `pluralName`, `description`, `abbreviation`, `pluralAbbreviation`, `useAbbreviation`, `fraction`, `aliases`, and/or `standardQuantity`/`standardUnit`. Omitted fields keep their current value.
+- `delete_unit` — **Destructive.** Permanently deletes a unit. Verify the unit with `get_unit` first — deleting a unit still referenced by recipe ingredients is refused by Mealie rather than cascaded.
+
+**Aliases vs. abbreviations.** These are two distinct Mealie fields, not the same concept:
+- `aliases` (e.g. `["tbs", "tbsp."]`) are alternate names Mealie also recognizes for the unit. Like `create_food`/`update_food`, `create_unit`/`update_unit` accept `aliases` as a plain `string[]` and convert each entry into the alias object shape Mealie expects internally. `update_unit` **replaces the entire alias collection** whenever `aliases` is supplied — pass an empty array to clear all aliases, or omit the field entirely to leave existing aliases untouched. Aliases are not unique (Mealie allows duplicates, even within the same unit) and are not matched by `get_units`' search.
+- `abbreviation`/`pluralAbbreviation` (e.g. `"tbsp"`) are a single short display form for the unit, separate from `aliases`. `useAbbreviation` controls only how Mealie *renders* the unit in a computed ingredient display string (abbreviation vs. full name) — it has no effect on matching, search, or storage.
+
+**Standard-quantity conversion metadata.** `standardQuantity`/`standardUnit` (e.g. a tablespoon might carry `standardQuantity: 0.5`, `standardUnit: "fluid_ounce"`) let Mealie's own shopping-list item merging combine quantities across differently-expressed but equivalent units. `standardUnit` is a free-form string that Mealie's conversion library (`pint`) must be able to parse (e.g. `"fluid_ounce"`, `"cup"`, `"gram"`) — Mealie does not validate it against a fixed enum. The pair is all-or-nothing: supplying only one of the two causes Mealie to silently clear both back to `null`. **Mealie itself will auto-populate this pair on `create_unit`** when the new unit's name/abbreviation matches one of its own built-in standardized units (e.g. naming a unit exactly "tablespoon"), unless both fields are already explicitly supplied — this MCP does not perform or replicate that matching itself, only Mealie does.
+
+**Example workflow — resolve a unit for a parsed ingredient, then use its ID:**
+
+```json
+// The calling LLM has already interpreted "2 tbsp olive oil" as
+// quantity=2, unit="tablespoon", food="olive oil" — the MCP never does this parsing.
+
+// 1. Search for the existing unit
+{ "search": "tablespoon" }
+// -> get_units
+
+// 2. Resolve its ID from the result, then write the structured ingredient
+{
+  "slug": "chicken-shawarma",
+  "ingredients": [
+    {
+      "quantity": 2,
+      "unitId": "9a7d...",
+      "unitName": "tablespoon",
+      "foodId": "f04a...",
+      "foodName": "olive oil"
+    }
+  ]
+}
+// -> update_recipe_ingredients
+```
+
 ## Updating Structured Recipe Ingredients
 
-`update_recipe_ingredients` replaces a recipe's complete structured ingredient collection (`recipeIngredient`) while leaving every other recipe field — name, description, instruction text, categories, tags, servings, times, nutrition, notes, settings, images — exactly as it was, with one caveat on instructions covered below. It's a low-level write primitive: it does not parse ingredient text, and it does not look up or create foods/units. `foodId`/`unitId` must already reference existing Mealie entities, resolved beforehand with `get_foods`/`get_food` (see [Resolving or Creating a Food](#resolving-or-creating-a-food) above) or Mealie's unit endpoints.
+`update_recipe_ingredients` replaces a recipe's complete structured ingredient collection (`recipeIngredient`) while leaving every other recipe field — name, description, instruction text, categories, tags, servings, times, nutrition, notes, settings, images — exactly as it was, with one caveat on instructions covered below. It's a low-level write primitive: it does not parse ingredient text, and it does not look up or create foods/units. `foodId`/`unitId` must already reference existing Mealie entities, resolved beforehand with `get_foods`/`get_food` (see [Resolving or Creating a Food](#resolving-or-creating-a-food) above) or `get_units`/`get_unit` (see [Resolving or Creating a Unit](#resolving-or-creating-a-unit) above).
 
 The `ingredients` array is the recipe's **complete** new ingredient list, not a patch — any ingredient not included is removed, and an empty array clears all ingredients. Call `get_recipe_detailed` first to see the recipe's current ingredients (including their `referenceId`s, which recipe instructions may reference) before replacing them.
 
