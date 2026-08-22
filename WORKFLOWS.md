@@ -95,7 +95,7 @@ Both tools return the recipe's `id`/`slug` plus, per collection, the `final` lis
 
 Foods are Mealie's reusable structured ingredient entities (e.g. "onion", "chicken breast") — the building blocks that a parsed recipe ingredient eventually points to, as distinct from the free-text ingredient notes on a recipe. Search existing foods before creating a new one: the name you need, or a close alias of it, often already exists, and creating a duplicate fragments the taxonomy.
 
-- `get_foods` — Lists and searches foods (`search`, `page`, `perPage`). The primary tool for resolving a human-readable food name to an existing food ID.
+- `get_foods` — Lists and searches foods (`search`, `page`, `perPage`) for browsing or a single lookup. `search` matches `name`/`pluralName` only — **not** `aliases`. For resolving several already-interpreted food concepts at once, and for alias-aware matching, use `get_food_matches` instead — see [Resolving Several Foods or Units at Once](#resolving-several-foods-or-units-at-once) below.
 - `get_food` — Retrieves a single food by ID, including its aliases and label.
 - `create_food` — Creates a food. Supports assigning aliases (`aliases: string[]`) and an existing food label (`labelId`) at creation time.
 - `update_food` — Updates a food's `name`, `pluralName`, `description`, `aliases`, and/or `labelId`. Omitted fields keep their current value.
@@ -125,9 +125,96 @@ Foods are Mealie's reusable structured ingredient entities (e.g. "onion", "chick
 // 4. The resulting food id is then used later by a structured ingredient workflow
 ```
 
+## Resolving or Creating a Unit
+
+Units are Mealie's canonical ingredient unit vocabulary (e.g. "tablespoon", "cup", "gram") — the shared reference objects a parsed recipe ingredient's `unit` points to, analogous to [Resolving or Creating a Food](#resolving-or-creating-a-food) above for the ingredient's food. They are shared across every recipe that uses them: renaming or repurposing a unit changes how every ingredient that references it displays. Search existing units before creating a new one.
+
+- `get_units` — Lists and searches units (`search`, `page`, `perPage`). The primary tool for resolving a human-readable unit name to an existing unit ID. `search` matches against `name`, `pluralName`, `abbreviation`, and `pluralAbbreviation` — **not** `aliases`.
+- `get_unit` — Retrieves a single unit by ID, including its aliases, abbreviations, and standard-quantity conversion metadata.
+- `create_unit` — Creates a unit. Supports `aliases` (plain `string[]`), `abbreviation`/`pluralAbbreviation`, `useAbbreviation`, `fraction`, and `standardQuantity`/`standardUnit` at creation time.
+- `update_unit` — Updates a unit's `name`, `pluralName`, `description`, `abbreviation`, `pluralAbbreviation`, `useAbbreviation`, `fraction`, `aliases`, and/or `standardQuantity`/`standardUnit`. Omitted fields keep their current value.
+- `delete_unit` — **Destructive.** Permanently deletes a unit. Verify the unit with `get_unit` first — deleting a unit still referenced by recipe ingredients is refused by Mealie rather than cascaded.
+
+**Aliases vs. abbreviations.** These are two distinct Mealie fields, not the same concept:
+- `aliases` (e.g. `["tbs", "tbsp."]`) are alternate names Mealie also recognizes for the unit. Like `create_food`/`update_food`, `create_unit`/`update_unit` accept `aliases` as a plain `string[]` and convert each entry into the alias object shape Mealie expects internally. `update_unit` **replaces the entire alias collection** whenever `aliases` is supplied — pass an empty array to clear all aliases, or omit the field entirely to leave existing aliases untouched. Aliases are not unique (Mealie allows duplicates, even within the same unit) and are not matched by `get_units`' search.
+- `abbreviation`/`pluralAbbreviation` (e.g. `"tbsp"`) are a single short display form for the unit, separate from `aliases`. `useAbbreviation` controls only how Mealie *renders* the unit in a computed ingredient display string (abbreviation vs. full name) — it has no effect on matching, search, or storage.
+
+**Standard-quantity conversion metadata.** `standardQuantity`/`standardUnit` (e.g. a tablespoon might carry `standardQuantity: 0.5`, `standardUnit: "fluid_ounce"`) let Mealie's own shopping-list item merging combine quantities across differently-expressed but equivalent units. `standardUnit` is a free-form string that Mealie's conversion library (`pint`) must be able to parse (e.g. `"fluid_ounce"`, `"cup"`, `"gram"`) — Mealie does not validate it against a fixed enum. The pair is all-or-nothing: supplying only one of the two causes Mealie to silently clear both back to `null`. **Mealie itself will auto-populate this pair on `create_unit`** when the new unit's name/abbreviation matches one of its own built-in standardized units (e.g. naming a unit exactly "tablespoon"), unless both fields are already explicitly supplied — this MCP does not perform or replicate that matching itself, only Mealie does.
+
+**Example workflow — resolve a unit for a parsed ingredient, then use its ID:**
+
+```json
+// The calling LLM has already interpreted "2 tbsp olive oil" as
+// quantity=2, unit="tablespoon", food="olive oil" — the MCP never does this parsing.
+
+// 1. Search for the existing unit
+{ "search": "tablespoon" }
+// -> get_units
+
+// 2. Resolve its ID from the result, then write the structured ingredient
+{
+  "slug": "chicken-shawarma",
+  "ingredients": [
+    {
+      "quantity": 2,
+      "unitId": "9a7d...",
+      "unitName": "tablespoon",
+      "foodId": "f04a...",
+      "foodName": "olive oil"
+    }
+  ]
+}
+// -> update_recipe_ingredients
+```
+
+## Resolving Several Foods or Units at Once
+
+`get_food_matches` and `get_unit_matches` resolve a **batch** of already-interpreted food/unit concepts to candidate Mealie entities in one call, using a small, bounded number of Mealie requests instead of one `get_foods`/`get_units` search per concept. This is the tool to reach for once an LLM has parsed a batch of ingredient lines and needs to resolve every concept it identified — e.g. parsing `"2 tbsp olive oil"`, `"3 cloves garlic"`, and `"1 cup broccoli"` into food concepts `["olive oil", "garlic", "broccoli"]` and unit concepts `["tablespoon", "clove", "cup"]` is 2 tool calls with `get_food_matches`/`get_unit_matches` instead of 5 separate `get_foods`/`get_units` searches.
+
+**How this differs from `get_foods`/`get_units`:**
+
+| | `get_foods` / `get_units` | `get_food_matches` / `get_unit_matches` |
+|---|---|---|
+| Purpose | Browse or a single search | Resolve several already-interpreted concepts at once |
+| Aliases | Not matched by `search` | Matched, with `matchedBy: "alias"` reported |
+| Result shape | A flat paginated page | Candidates grouped per input query |
+| Picks a winner? | N/A | Never — always returns ranked candidates, caller decides |
+
+**What they do NOT do:** parse ingredient text, perform fuzzy/semantic matching, or create/update/delete any food, unit, or alias. By the time you call these tools you've already decided what concepts to look up — these tools only retrieve existing canonical candidates for concepts you've already identified.
+
+**Matching.** Each query is checked against the candidate's canonical fields and its aliases, using plain trimmed/case-insensitive string comparison — never fuzzy or semantic matching. Every candidate that exact-matches or contains the query on any checked field is returned (never just one "best" answer); results are ranked with exact matches ahead of substring matches, and within each of those groups, `name` ahead of `pluralName` ahead of (for units) `abbreviation`/`pluralAbbreviation` ahead of `alias`. Each candidate reports `matchedBy` (which field matched), `matchType` (`"exact"` or `"substring"`), and `matchedValue` (the actual stored text that matched — e.g. the alias text, not the query).
+
+**Example workflow — resolve a batch of parsed ingredient concepts:**
+
+```json
+// The calling LLM has already parsed several ingredient lines and identified the concepts below —
+// these tools never parse ingredient text themselves.
+
+// 1. Resolve every food concept identified across the batch, in one call
+{ "queries": ["olive oil", "garlic", "broccoli"] }
+// -> get_food_matches
+// -> { "matches": [
+//      { "query": "olive oil", "items": [{ "id": "f04a...", "name": "olive oil", "matchedBy": "name", "matchType": "exact", ... }] },
+//      { "query": "garlic", "items": [{ "id": "...", "name": "garlic", "matchedBy": "name", "matchType": "exact", ... }] },
+//      { "query": "broccoli", "items": [] }  // no existing food — the LLM may now call create_food
+//    ], "queryCount": 3, "matchedCount": 2, "apiRequestCount": 1 }
+
+// 2. Resolve every unit concept identified across the batch, in one call
+{ "queries": ["tablespoon", "clove", "cup"] }
+// -> get_unit_matches
+
+// 3. The calling LLM picks the appropriate candidate (or creates one) per concept, then writes the
+//    resolved ingredients in one call
+// -> update_recipe_ingredients
+```
+
+Both tools accept an optional `maxMatchesPerQuery` (default 10) to cap how many ranked candidates come back per query, and enforce a maximum number of queries per call (25) to keep each underlying request bounded. Passing the same query twice (case-insensitively) does not cost an extra Mealie request — it's resolved once and returned once per input entry, preserving the input order. A failure to look up one particular batch of queries does not discard matches already found for the rest of the batch — the affected entries carry an `error` field instead of `items`.
+
+Each query's result also carries `truncated: true` when additional matching candidates may exist beyond the returned `items` — either because there were more matches than `maxMatchesPerQuery` and the list was capped, or because Mealie's own retrieval for that query came back incomplete. `items` is never guaranteed to be the *complete* candidate set when `truncated` is `true`; narrow the query text or raise `maxMatchesPerQuery` if seeing the rest matters.
+
 ## Updating Structured Recipe Ingredients
 
-`update_recipe_ingredients` replaces a recipe's complete structured ingredient collection (`recipeIngredient`) while leaving every other recipe field — name, description, instruction text, categories, tags, servings, times, nutrition, notes, settings, images — exactly as it was, with one caveat on instructions covered below. It's a low-level write primitive: it does not parse ingredient text, and it does not look up or create foods/units. `foodId`/`unitId` must already reference existing Mealie entities, resolved beforehand with `get_foods`/`get_food` (see [Resolving or Creating a Food](#resolving-or-creating-a-food) above) or Mealie's unit endpoints.
+`update_recipe_ingredients` replaces a recipe's complete structured ingredient collection (`recipeIngredient`) while leaving every other recipe field — name, description, instruction text, categories, tags, servings, times, nutrition, notes, settings, images — exactly as it was, with one caveat on instructions covered below. It's a low-level write primitive: it does not parse ingredient text, and it does not look up or create foods/units. `foodId`/`unitId` must already reference existing Mealie entities, resolved beforehand — normally with `get_food_matches`/`get_unit_matches` (see [Resolving Several Foods or Units at Once](#resolving-several-foods-or-units-at-once) above), which resolve several already-interpreted concepts in one batch and check aliases; `get_foods`/`get_food` (see [Resolving or Creating a Food](#resolving-or-creating-a-food) above) or `get_units`/`get_unit` (see [Resolving or Creating a Unit](#resolving-or-creating-a-unit) above) remain available for a single manual lookup.
 
 The `ingredients` array is the recipe's **complete** new ingredient list, not a patch — any ingredient not included is removed, and an empty array clears all ingredients. Call `get_recipe_detailed` first to see the recipe's current ingredients (including their `referenceId`s, which recipe instructions may reference) before replacing them.
 
@@ -216,3 +303,77 @@ Pass back `nextCursor` from the previous response unchanged:
 5. Save each batch's successful write responses as a checkpoint.
 6. Continue calling `get_recipes_for_classification` with `nextCursor` until `hasMore` is `false`.
 7. If any individual read (`failures` in a classification page) or write (a failed entry from `update_recipe_taxonomy_batch`) fails, retry only that recipe — do not restart the whole pagination.
+
+## Ingredient Parsing Workflow
+
+`get_recipes_for_ingredient_parsing` is a compact, paginated, **READ-ONLY** work queue of recipes whose ingredients may still need structured parsing — the ingredient-parsing counterpart to `get_recipes_for_classification`. It never modifies a recipe, food, unit, alias, or ingredient, and it never parses ingredient text itself: it does not call Mealie's NLP ingredient parser, does not guess a food/unit association, and does not decide linguistically whether a line "contains a unit". Interpreting free-form ingredient text (e.g. `"2 tablespoons chopped fresh parsley leaves"` → quantity `2`, unit `tablespoon`, food `parsley`, note `"chopped fresh"`) is entirely the calling model's responsibility.
+
+Conceptually:
+
+```
+get_recipes_for_ingredient_parsing
+    ->
+model interprets ingredients (using recipe + instruction context)
+    ->
+get_food_matches / get_unit_matches
+    ->
+model selects canonical entities (or decides a new food/unit is needed)
+    ->
+update_recipe_ingredients
+```
+
+This document covers only the first step — the read-only work queue. The detailed rules a model should use to interpret ingredient text (splitting, combining, alternatives, etc.) are intentionally not defined here; that policy lives elsewhere and this tool has no opinion on it.
+
+The intended workflow:
+
+1. Call `get_recipes_for_ingredient_parsing` to get a page of recipes needing attention.
+2. For each ingredient, interpret its existing text (`display`/`note`/`originalText`) yourself — the MCP does not do this. Recipe instructions are included for exactly this: they can disambiguate an otherwise-ambiguous line.
+3. Resolve canonical food/unit IDs separately with `get_food_matches`/`get_unit_matches` (see [Resolving Several Foods or Units at Once](#resolving-several-foods-or-units-at-once) above) — batch, alias-aware lookups purpose-built for this step. This tool never looks up or creates foods/units itself.
+4. Decide whether a new food, unit, or alias is warranted (this tool has no opinion on that).
+5. Call `update_recipe_ingredients` (see [Updating Structured Recipe Ingredients](#updating-structured-recipe-ingredients) above) with the recipe's **complete** corrected ingredient collection. Existing `referenceId`s are stable identifiers that recipe instructions may reference — preserve one when an existing ingredient row continues to represent the same ingredient.
+6. Continue calling `get_recipes_for_ingredient_parsing` with `nextCursor` until `hasMore` is `false`.
+
+### Arguments
+
+```json
+{
+  "cursor": "<opaque cursor from a previous call, omit to start over>",
+  "limit": 25,
+  "state": "unparsed_only"
+}
+```
+
+- `limit` — 1-50, default 25.
+- `state` — which recipes to include, default `"unparsed_only"`:
+  - `"unparsed_only"` — at least one ingredient has no associated food.
+  - `"partially_parsed"` — at least one ingredient has a food but no unit despite a positive quantity (see the false-positive caveat below).
+  - `"any"` — no filtering; every scanned recipe is returned, useful for auditing.
+
+### What each ingredient's `parsingState` means (and what it doesn't)
+
+Mealie's `RecipeIngredient` schema, confirmed against a live instance, exposes no explicit "is this a section heading" or "is this deliberately free-form" flag — only `title`, `quantity`, `unit`, `food`, `note`, `display`, `originalText`, and `referenceId` are actually present on read. So classification here is deliberately narrow and schema-only, never linguistic:
+
+- **`section`** — `title` is non-empty. This is Mealie's own mechanism for ingredient section headers (e.g. "For the sauce"); a heading row is never counted as needing parsing, so a recipe made entirely of structured ingredients plus a section heading still correctly reads as fully parsed.
+- **`unparsed`** — `title` is empty and `food` is `null`. The primary, high-confidence signal this tool is built around.
+- **`partial`** — `food` is present but `unit` is `null` while `quantity` is a positive number. **Known limitation**: this is indistinguishable, without linguistic parsing, from a legitimately unit-less countable ingredient — real-world data shows things like `"4 eggs"`, `"2 lemons"`, or `"1 pie crust"` are commonly and *correctly* structured with no unit at all. Treat `partially_parsed` results as a coarse audit signal to sanity-check, not a confirmed defect.
+- **`structured`** — a food is present and either a unit is present, or quantity isn't a positive number (e.g. a to-taste garnish with no meaningful quantity).
+
+**"Free-form" entries** (deliberately non-food lines, e.g. "extra napkins") were investigated but are **not** exposed as a distinct state: nothing in Mealie's schema distinguishes them from a genuinely unparsed food ingredient — both are `food: null`, `title` empty, with text in `note`/`display`. Rather than fabricate a distinction the data can't support, such rows are classified as `unparsed` like any other food-less ingredient.
+
+**`originalText` is not a reliable signal.** It was investigated as a possible "this came from unparsed source text" marker but discarded — on a live Mealie instance it was observed `null` on every ingredient, fully structured and completely unparsed alike. Imported/scraped recipes put the raw ingredient line straight into `note`/`display` instead. This tool still returns `originalText` when Mealie does populate it, but does not rely on it for classification.
+
+### Returned ingredient fields
+
+Each ingredient preserves its current Mealie state — never a transformed interpretation — so it can be safely round-tripped later through `update_recipe_ingredients`: `referenceId`, `quantity`, `unit` (`{id, name}` or `null`), `food` (`{id, name}` or `null`), `note`, `display`, `originalText`, `title`, and the derived `parsingState` described above.
+
+### Instruction context
+
+Each recipe also includes its instructions (`title`, `text`, `ingredientReferences`) unchanged, since instruction text can disambiguate an otherwise vague ingredient line (e.g. `"1 package ranch"` might mean ranch dressing mix or ranch seasoning — the instructions often make it clear). Instruction `id`s are included when present but, exactly as with `update_recipe_ingredients`, **must not be depended on for stability** — Mealie recreates every `recipeInstructions` row (with a fresh `id`) on any recipe update, including one made via `update_recipe_ingredients`. `referenceId` on the ingredient (not the instruction `id`) is the stable identity `ingredientReferences` actually links against.
+
+### Pagination and efficiency
+
+Pagination reuses the same stable, opaque cursor mechanism as `get_recipes_for_classification` (see [Architecture](./ARCHITECTURE.md#pagination--cursor-design)) — scanning the full recipe collection ordered by `createdAt` with the recipe id as a tie-breaker, so a recipe's ingredients changing state between calls never causes another recipe to be skipped or duplicated. Pass `nextCursor` back unchanged to continue; stop once `hasMore` is `false`.
+
+**Efficiency note**: unlike classification, Mealie's recipe list endpoint does not include `recipeIngredient`, so this tool cannot cheaply pre-filter from the list response — every scanned recipe needs a full detail fetch to know whether it matches (why, and what else was ruled out, is in [Architecture](./ARCHITECTURE.md#why-ingredient-parsing-cant-pre-filter-cheaply)). Detail fetches happen in small batches with the same bounded concurrency used elsewhere in this server, not `Promise.all` across the whole scan. On a library where only a small fraction of recipes need parsing, filling a page can take noticeably longer than classification's equivalent call; a page may come back with `hasMore: true` and fewer than `limit` items if an internal time budget is hit first — just continue with `nextCursor`.
+
+As with `get_recipes_for_classification`, a failure reading one recipe is reported in `failures` and does not fail the rest of the page.

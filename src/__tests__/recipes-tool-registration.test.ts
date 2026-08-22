@@ -10,6 +10,7 @@ const EXISTING_RECIPE_TOOLS = [
   'get_recipes_detailed_batch',
   'create_recipe',
   'patch_recipe',
+  'update_recipe_ingredients',
   'update_recipe_taxonomy',
   'update_recipe_taxonomy_batch',
   'duplicate_recipe',
@@ -34,6 +35,7 @@ describe('registerRecipeTools backward compatibility', () => {
       expect(registeredNames).toContain(name);
     }
     expect(registeredNames).toContain('get_recipes_for_classification');
+    expect(registeredNames).toContain('get_recipes_for_ingredient_parsing');
   });
 
   it('registers get_recipes_for_classification as read-only and non-destructive', () => {
@@ -43,6 +45,26 @@ describe('registerRecipeTools backward compatibility', () => {
     registerRecipeTools(stubServer as never);
 
     const call = tool.mock.calls.find(([name]) => name === 'get_recipes_for_classification');
+    expect(call).toBeDefined();
+    const annotations = call!.find((arg): arg is Record<string, unknown> => {
+      return typeof arg === 'object' && arg !== null && 'readOnlyHint' in arg;
+    });
+
+    expect(annotations).toEqual({
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
+  });
+
+  it('registers get_recipes_for_ingredient_parsing as read-only and non-destructive', () => {
+    const tool = vi.fn<(name: string, ...rest: unknown[]) => undefined>();
+    const stubServer = { tool };
+
+    registerRecipeTools(stubServer as never);
+
+    const call = tool.mock.calls.find(([name]) => name === 'get_recipes_for_ingredient_parsing');
     expect(call).toBeDefined();
     const annotations = call!.find((arg): arg is Record<string, unknown> => {
       return typeof arg === 'object' && arg !== null && 'readOnlyHint' in arg;

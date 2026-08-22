@@ -11,6 +11,12 @@ import {
   CLASSIFICATION_DEFAULT_TAXONOMY_STATE,
 } from '../lib/recipe-classification.js';
 import { updateRecipeIngredients } from '../lib/recipe-ingredients.js';
+import {
+  getRecipesForIngredientParsing,
+  INGREDIENT_PARSING_DEFAULT_LIMIT,
+  INGREDIENT_PARSING_MAX_LIMIT,
+  INGREDIENT_PARSING_DEFAULT_STATE,
+} from '../lib/recipe-ingredient-parsing.js';
 
 const taxonomyModeSchema = z
   .enum(['merge', 'replace'])
@@ -62,8 +68,9 @@ const recipeIngredientInputSchema = z.object({
     .uuid()
     .optional()
     .describe(
-      'UUID of an existing food (see get_foods/get_food). Must be given together with foodName — never alone. ' +
-        'This tool never looks up or creates foods; resolve the food first.',
+      'UUID of an existing food (see get_food_matches for resolving multiple already-interpreted concepts at ' +
+        'once, or get_foods/get_food for a single manual lookup). Must be given together with foodName — never ' +
+        'alone. This tool never looks up or creates foods; resolve the food first.',
     ),
   foodName: z.string().optional().describe('Human-readable name of the food identified by foodId. Required whenever foodId is given.'),
   note: z.string().nullable().optional().describe('Free-text note for this ingredient line.'),
@@ -310,6 +317,86 @@ export function registerRecipeTools(server: McpServer) {
   );
 
   server.tool(
+    'get_recipes_for_ingredient_parsing',
+    'Compact, paginated, READ-ONLY work queue of recipes whose ingredients may need structured parsing. This ' +
+      'tool identifies candidate recipes using only their EXISTING stored schema state — it never parses or ' +
+      'interprets ingredient language itself: it does not call Mealie\'s NLP ingredient parser, does not guess a ' +
+      'food/unit association, and never modifies any recipe, food, unit, alias, or ingredient. It returns each ' +
+      'ingredient\'s current stored state (quantity, unit id/name, food id/name, note, display, originalText, ' +
+      'title, referenceId) plus recipe instructions (title, text, ingredientReferences) as context — turning ' +
+      'that into structured data (e.g. "2 tablespoons chopped fresh parsley leaves" -> quantity 2, unit ' +
+      'tablespoon, food parsley, note "chopped fresh") is entirely the calling model\'s job. Instructions are ' +
+      'included because they can disambiguate an otherwise-ambiguous ingredient line or reveal how a compound ' +
+      'quantity is actually used (e.g. whether "3 cups + 2 tbsp flour" is one combined amount or two separate ' +
+      'uses) — this tool does not decide that, it only supplies the text. Each ingredient includes a ' +
+      'deterministic, schema-only "parsingState": "section" (a Mealie ingredient-section heading, identified by ' +
+      'a non-empty title — never counted as needing parsing), "unparsed" (no food is associated — the primary, ' +
+      'high-confidence signal), "partial" (a food is associated but no unit, while quantity is a positive number ' +
+      '— NOTE: this also matches legitimately unit-less countable foods like "4 eggs" or "2 lemons", since ' +
+      'Mealie\'s schema has no field distinguishing that from an incompletely-structured row; treat "partial" as ' +
+      'a coarse audit signal, not a confirmed defect), or "structured" (fully resolved, or has no meaningful ' +
+      'quantity to need a unit). Each recipe also includes an ingredientParsingState summary ' +
+      '(unparsedCount/partialCount/structuredCount/sectionCount/totalCount). Use "state" to choose the queue: ' +
+      '"unparsed_only" (default) — recipes with at least one unparsed ingredient; "partially_parsed" — recipes ' +
+      'with at least one partial ingredient; "any" — every scanned recipe, for auditing. Every scanned recipe ' +
+      'needs a full detail fetch (Mealie\'s recipe list endpoint does not expose ingredients), fetched with ' +
+      'bounded concurrency in small batches — a failure reading one recipe is reported in failures and does not ' +
+      'fail the rest of the page. Because of that per-recipe fetch cost, a sparse queue may need to scan far ' +
+      'more recipes than it returns to fill a page; returnedCount can come in below the requested limit even ' +
+      'when hasMore is true, if an internal time budget is reached first — this is expected, not an error, and ' +
+      'the response is still safe to use as-is. Pass the response\'s nextCursor back unchanged as the next ' +
+      'call\'s cursor to continue; stop once hasMore is false. Pagination is stable against concurrent recipe ' +
+      'edits, the same way get_recipes_for_classification is. When you later write changes: use get_food_matches ' +
+      'and get_unit_matches to find existing canonical food/unit candidates for the concepts you interpreted ' +
+      '(this tool never looks them up or creates them itself), then call update_recipe_ingredients with the ' +
+      'complete, corrected ingredient collection for that recipe. Existing referenceIds are stable identifiers ' +
+      'for ingredient rows and may be referenced by recipe instructions — preserve them when an existing ' +
+      'ingredient row continues to represent the same ingredient. Recipe instruction ids returned here are NOT ' +
+      'stable — Mealie recreates recipeInstructions (and assigns fresh ids) on every recipe update, including ' +
+      'update_recipe_ingredients — do not depend on an instruction id read here still being valid after a write.',
+    {
+      cursor: z
+        .string()
+        .optional()
+        .describe(
+          'Opaque continuation token from a previous call\'s nextCursor. Pass it back unchanged to resume ' +
+            'exactly where that call left off; omit it to start from the beginning of the collection. Do not ' +
+            'construct or edit this value — malformed or foreign cursors are rejected with a clear error.',
+        ),
+      limit: z
+        .number()
+        .int(`limit must be between 1 and ${INGREDIENT_PARSING_MAX_LIMIT}.`)
+        .min(1, `limit must be between 1 and ${INGREDIENT_PARSING_MAX_LIMIT}.`)
+        .max(INGREDIENT_PARSING_MAX_LIMIT, `limit must be between 1 and ${INGREDIENT_PARSING_MAX_LIMIT}.`)
+        .optional()
+        .describe(`Maximum recipes to return (1-${INGREDIENT_PARSING_MAX_LIMIT}, default ${INGREDIENT_PARSING_DEFAULT_LIMIT}).`),
+      state: z
+        .enum(['unparsed_only', 'partially_parsed', 'any'])
+        .optional()
+        .describe(
+          `Which recipes to include (default "${INGREDIENT_PARSING_DEFAULT_STATE}"): "unparsed_only" — at least ` +
+            'one ingredient has no associated food; "partially_parsed" — at least one ingredient has a food but ' +
+            'no unit despite a positive quantity (coarse signal, see tool description for its known false-positive ' +
+            'tradeoff); "any" — no filtering, every scanned recipe is returned (useful for auditing).',
+        ),
+    },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    async ({ cursor, limit, state }) => {
+      try {
+        const result = await getRecipesForIngredientParsing({ cursor, limit, state });
+        return successResponse(result);
+      } catch (error) {
+        return errorResponse(error);
+      }
+    },
+  );
+
+  server.tool(
     'create_recipe',
     {
       name: z.string(),
@@ -392,7 +479,9 @@ export function registerRecipeTools(server: McpServer) {
       'recipe update (PATCH or PUT), including this one — instruction text/title/summary/ingredient-references ' +
       'are preserved correctly, only the IDs change. Low-level write primitive: it does not parse ingredient ' +
       'text and does not look up or create foods/units — foodId/unitId must already reference existing Mealie ' +
-      'entities (resolve them first with get_foods/get_food or Mealie\'s unit endpoints). The ingredients array ' +
+      'entities, resolved first with get_food_matches/get_unit_matches (batch, alias-aware lookup for several ' +
+      'already-interpreted concepts at once — the normal path after parsing ingredient text) or get_foods/' +
+      'get_food/get_units/get_unit for a single manual lookup. The ingredients array ' +
       'is the recipe\'s complete new ingredient list, not a patch: any ingredient not included is removed, and ' +
       'an empty array clears all ingredients. Call get_recipe_detailed first to see the recipe\'s current ' +
       'ingredients, referenceIds, and other fields before replacing them. Note: each ingredient\'s "display" ' +

@@ -1,4 +1,12 @@
 import { apiGet, apiPost, apiPut, apiDelete, formatParams, MealieApiError, PaginatedResult } from './client.js';
+import {
+  lookupCandidates,
+  LookupValidationError,
+  DEFAULT_MAX_MATCHES_PER_QUERY,
+  MAX_MATCHES_PER_QUERY_CAP,
+  type MatchFieldSpec,
+  type MultiQueryLookupResult,
+} from '../lib/multi-query-lookup.js';
 
 export interface CreateFoodInput {
   name: string;
@@ -133,6 +141,39 @@ export async function updateFood(
       wrapError(`Food not found: ${id}`, error);
     }
     wrapError(`Unable to update food ${id}`, error);
+  }
+}
+
+// Priority order for get_food_matches ranking: exact/substring name beats exact/substring pluralName
+// beats exact/substring alias. Attribute paths are Mealie's queryFilter attribute-chain syntax; "name"
+// and "pluralName" are plain columns on ingredient_foods, "aliases.name" traverses the food's alias
+// relationship (a real SQLAlchemy relationship, not an association proxy, so this join is supported).
+const FOOD_MATCH_FIELDS: MatchFieldSpec[] = [
+  { key: 'name', queryFilterAttr: 'name' },
+  { key: 'pluralName', queryFilterAttr: 'pluralName' },
+  { key: 'alias', queryFilterAttr: 'aliases.name', isAlias: true },
+];
+
+export async function getFoodMatches(
+  queries: string[],
+  options?: { maxMatchesPerQuery?: number },
+): Promise<MultiQueryLookupResult> {
+  const maxMatchesPerQuery = Math.min(
+    Math.max(1, options?.maxMatchesPerQuery ?? DEFAULT_MAX_MATCHES_PER_QUERY),
+    MAX_MATCHES_PER_QUERY_CAP,
+  );
+
+  try {
+    return await lookupCandidates(queries, FOOD_MATCH_FIELDS, maxMatchesPerQuery, async (queryFilter, perPage) => {
+      const result = await apiGet<PaginatedResult<Record<string, unknown>>>(
+        '/api/foods',
+        formatParams({ queryFilter, perPage, page: 1 }),
+      );
+      return { items: result.items, total: result.total };
+    });
+  } catch (error) {
+    if (error instanceof LookupValidationError) throw error;
+    wrapError('Unable to look up food matches', error);
   }
 }
 

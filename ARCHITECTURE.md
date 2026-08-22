@@ -26,7 +26,7 @@ A recipe that matches the filter but fails its detail fetch (see `failures` in t
 
 ## Debugging
 
-Set `MEALIE_MCP_DEBUG=true` in the server's environment to log per-call phase timings (scan/list, detail fetch, transform) for `get_recipes_for_classification` to stderr — useful for telling whether a slow call is spending its time listing recipes, fetching detail, or building the response. Diagnostics always go to stderr, never stdout, since stdout carries the MCP JSON-RPC transport.
+Set `MEALIE_MCP_DEBUG=true` in the server's environment to log per-call phase timings (scan/list, detail fetch, transform) for `get_recipes_for_classification` and `get_recipes_for_ingredient_parsing` to stderr — useful for telling whether a slow call is spending its time listing recipes, fetching detail, or building the response. Diagnostics always go to stderr, never stdout, since stdout carries the MCP JSON-RPC transport.
 
 ## Known Mealie API Quirks
 
@@ -43,3 +43,25 @@ Instruction *content* (text, title, summary, `ingredientReferences`) is preserve
 ### `display` is not a persisted field on `RecipeIngredient`
 
 Confirmed directly against the `RecipeIngredientModel` ORM definition — there is no `display` database column. Mealie's `format_display` validator only recomputes the field when it's empty, but since nothing ever persists a supplied value, it reads back empty (and gets recomputed) on every subsequent load, including the response to the very same write that supplied it. Kept as an accepted/forwarded field for forward compatibility in case a future Mealie version starts persisting it, but never treat a round-tripped `display` value as authoritative.
+
+## Why Ingredient Parsing Can't Pre-Filter Cheaply
+
+`get_recipes_for_classification` can filter cheaply because the list endpoint's response already embeds `recipeCategory`/`tags` for every recipe. Mealie's `/api/recipes` list response does **not** include `recipeIngredient` at all — this codebase's own `get_recipe_concise` tool has to call the full `getRecipe(slug)` and trim client-side for the same reason, since there is no server-side field-selection/projection param. That means `get_recipes_for_ingredient_parsing` genuinely needs a detail fetch for every scanned recipe, not just matches — fetched in small batches (`DETAIL_FETCH_BATCH_SIZE`, `src/lib/recipe-ingredient-parsing.ts`) with the same bounded concurrency as everything else, rather than loading the whole collection into memory or firing every request at once.
+
+Before accepting that, two alternatives were investigated directly against a live Mealie instance's real REST API (not this server's own tools) rather than assumed away:
+
+**Mealie's `queryFilter` query-language param can reach into `recipeIngredient` fields — but its pagination is broken for a to-many relation like this one, so it's unsafe to use.** `GET /api/recipes?queryFilter=recipeIngredient.foodId IS NULL` is accepted and returns matches, which looked like it could replace the whole per-recipe detail-fetch design. Testing it against Mealie `v3.20.1`, though:
+
+- Requesting `perPage=50` on that filter returned as few as 4 items on some pages, regardless of how many actually matched.
+- Walking `page=1` then `page=2` at `perPage=100` returned **the same recipe on both pages**.
+- The `total`/`total_pages` response fields were internally inconsistent across different `perPage` values for the identical filter (1580 at `perPage=50`, 378 at `perPage=5000`, `total_pages: 1` at both).
+
+This is consistent with `LIMIT`/`OFFSET` being applied to the raw joined `recipe_ingredient` rows before `DISTINCT` on the parent recipe — a recipe with many unparsed ingredient rows can straddle a page boundary and get split or duplicated across pages. That's a direct violation of the no-skip/no-duplicate pagination guarantee this tool (and `get_recipes_for_classification`) depends on, so `queryFilter` is not used for traversal here. It may be worth reporting upstream to Mealie; this repository has not done so.
+
+**The household/group export/backup endpoints were considered and not pursued.** They can dump the full recipe collection (including ingredients) in fewer round trips in principle, but likely need admin-level export permissions this server's API key may not have, produce a point-in-time snapshot rather than fitting this tool's live paginated/cursor model, and their actual payload efficiency at scale (images/assets likely bundled in) was not verified. Revisit only with evidence it's actually cheaper for this use case, not on the assumption that it is.
+
+Given that every scanned recipe costs a detail fetch, a sparse queue (few recipes actually needing parsing) can require scanning many recipes to fill one page — a live 25-recipe pilot needed 71 scans (a ~2.8:1 scan-to-return ratio) for `unparsed_only`, and an earlier, smaller pilot saw 30 scans for 5 matches (6:1). That ratio only gets worse as more of a library becomes structured. `DEFAULT_DEADLINE_MS` (`src/lib/recipe-ingredient-parsing.ts`, currently 20s, matching `get_recipes_for_classification`'s own budget) bounds how long a single call will keep scanning before returning whatever it's found so far with `hasMore: true` — the same soft-deadline pattern classification already uses, for the same reason (avoid an MCP gateway timeout on a call that would otherwise keep scanning indefinitely). `returnedCount` coming in under the requested `limit` while `hasMore` is `true` is this budget doing its job, not a bug.
+
+### The `partial` parsing-state heuristic's tradeoff, quantified
+
+The `"food present, unit absent, quantity positive"` heuristic behind `partial` (see [Workflows](./WORKFLOWS.md#what-each-ingredients-parsingstate-means-and-what-it-doesnt)) was checked against real recipes rather than assumed reasonable. A single ordinary, fully-structured recipe fetched during investigation (`lemon-chess-pie`) had 3 of its 9 ingredients — `"1 pie crust"`, `"4 eggs"`, `"4 lemons"` — as legitimately unit-less counts that this heuristic cannot distinguish from incomplete structuring, since there is no schema field recording "unit intentionally omitted". That's roughly a third of one recipe's ingredients, not a rare edge case; `partially_parsed` is documented as a coarse audit signal for exactly this reason, not a confirmed-defect filter.
