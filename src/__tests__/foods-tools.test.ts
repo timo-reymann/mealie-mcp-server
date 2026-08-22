@@ -4,6 +4,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 vi.mock('../api/foods.js', () => ({
   getFoods: vi.fn(),
   getFood: vi.fn(),
+  getFoodMatches: vi.fn(),
   createFood: vi.fn(),
   updateFood: vi.fn(),
   deleteFood: vi.fn(),
@@ -42,6 +43,7 @@ function schemaFor(calls: Map<string, unknown[]>, name: string): Record<string, 
 
 const mockGetFoods = vi.mocked(foodsApi.getFoods);
 const mockGetFood = vi.mocked(foodsApi.getFood);
+const mockGetFoodMatches = vi.mocked(foodsApi.getFoodMatches);
 const mockCreateFood = vi.mocked(foodsApi.createFood);
 const mockUpdateFood = vi.mocked(foodsApi.updateFood);
 const mockDeleteFood = vi.mocked(foodsApi.deleteFood);
@@ -56,9 +58,10 @@ beforeEach(() => {
 });
 
 describe('registration', () => {
-  it('registers all five food tools', () => {
+  it('registers all six food tools', () => {
     expect(calls.has('get_foods')).toBe(true);
     expect(calls.has('get_food')).toBe(true);
+    expect(calls.has('get_food_matches')).toBe(true);
     expect(calls.has('create_food')).toBe(true);
     expect(calls.has('update_food')).toBe(true);
     expect(calls.has('delete_food')).toBe(true);
@@ -67,6 +70,9 @@ describe('registration', () => {
   it('uses the intended public parameter names for each tool', () => {
     expect(Object.keys(schemaFor(calls, 'get_foods')).sort()).toEqual(['page', 'perPage', 'search'].sort());
     expect(Object.keys(schemaFor(calls, 'get_food'))).toEqual(['foodId']);
+    expect(Object.keys(schemaFor(calls, 'get_food_matches')).sort()).toEqual(
+      ['queries', 'maxMatchesPerQuery'].sort(),
+    );
     expect(Object.keys(schemaFor(calls, 'create_food')).sort()).toEqual(
       ['name', 'pluralName', 'description', 'aliases', 'labelId'].sort(),
     );
@@ -118,6 +124,57 @@ describe('get_food tool', () => {
     const response = await handler({ foodId: 'missing-id' });
     expect(response.isError).toBe(true);
     expect(response.content[0].text).toMatch(/Food not found/);
+  });
+});
+
+describe('get_food_matches tool', () => {
+  it('passes queries and maxMatchesPerQuery through and returns the result', async () => {
+    const result = {
+      matches: [{ query: 'basil', items: [], truncated: false }],
+      queryCount: 1,
+      uniqueQueryCount: 1,
+      matchedCount: 0,
+      apiRequestCount: 1,
+    };
+    mockGetFoodMatches.mockResolvedValue(result);
+
+    const handler = handlerFor(calls, 'get_food_matches');
+    const response = await handler({ queries: ['basil'], maxMatchesPerQuery: 5 });
+
+    expect(mockGetFoodMatches).toHaveBeenCalledWith(['basil'], { maxMatchesPerQuery: 5 });
+    expect(response.isError).toBeUndefined();
+    expect(JSON.parse(response.content[0].text)).toEqual(result);
+  });
+
+  it('surfaces validation errors as an error response', async () => {
+    mockGetFoodMatches.mockRejectedValue(new Error('At least one query is required.'));
+    const handler = handlerFor(calls, 'get_food_matches');
+    const response = await handler({ queries: [] });
+    expect(response.isError).toBe(true);
+    expect(response.content[0].text).toMatch(/At least one query is required/);
+  });
+
+  it('surfaces API errors as an error response', async () => {
+    mockGetFoodMatches.mockRejectedValue(new Error('Unable to look up food matches: Mealie API error 500: boom'));
+    const handler = handlerFor(calls, 'get_food_matches');
+    const response = await handler({ queries: ['basil'] });
+    expect(response.isError).toBe(true);
+    expect(response.content[0].text).toMatch(/Unable to look up food matches/);
+  });
+
+  it('never creates, updates, or deletes a food — read-only', async () => {
+    mockGetFoodMatches.mockResolvedValue({
+      matches: [],
+      queryCount: 0,
+      uniqueQueryCount: 0,
+      matchedCount: 0,
+      apiRequestCount: 0,
+    });
+    const handler = handlerFor(calls, 'get_food_matches');
+    await handler({ queries: ['basil'] });
+    expect(mockCreateFood).not.toHaveBeenCalled();
+    expect(mockUpdateFood).not.toHaveBeenCalled();
+    expect(mockDeleteFood).not.toHaveBeenCalled();
   });
 });
 

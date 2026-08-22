@@ -12,7 +12,7 @@ vi.mock('../api/client.js', async () => {
 });
 
 import { apiGet, apiPost, apiPut, apiDelete, MealieApiError } from '../api/client.js';
-import { getFoods, getFood, createFood, updateFood, deleteFood } from '../api/foods.js';
+import { getFoods, getFood, createFood, updateFood, deleteFood, getFoodMatches } from '../api/foods.js';
 
 const mockGet = vi.mocked(apiGet);
 const mockPost = vi.mocked(apiPost);
@@ -378,5 +378,182 @@ describe('deleteFood', () => {
     mockDelete.mockRejectedValue(new MealieApiError(500, 'Internal Server Error'));
     await expect(deleteFood('food-1')).rejects.toThrow(/Unable to delete food/);
     await expect(deleteFood('food-1')).rejects.toThrow(/500/);
+  });
+});
+
+describe('getFoodMatches', () => {
+  function paginatedFoods(items: Record<string, unknown>[], total?: number) {
+    return { items, total: total ?? items.length, page: 1, size: items.length };
+  }
+
+  it('issues one combined queryFilter request for a small batch of queries', async () => {
+    mockGet.mockResolvedValue(paginatedFoods([]));
+
+    await getFoodMatches(['basil', 'garlic']);
+
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    const [path, params] = mockGet.mock.calls[0];
+    expect(path).toBe('/api/foods');
+    expect(params).toMatchObject({ page: '1', perPage: '200' });
+    expect(params!.queryFilter).toContain('name LIKE "%basil%"');
+    expect(params!.queryFilter).toContain('aliases.name LIKE "%garlic%"');
+  });
+
+  it('resolves the "som moo" alias regression case: the food is found via its alias, not its name', async () => {
+    const fermentedPork = {
+      id: '6d0534a7-ee50-443d-af6e-079731249172',
+      name: 'fermented pork',
+      pluralName: 'fermented pork',
+      aliases: [{ name: 'cured pork (som moo)' }],
+    };
+    mockGet.mockResolvedValue(paginatedFoods([fermentedPork]));
+
+    const result = await getFoodMatches(['som moo']);
+
+    expect(result.matches).toHaveLength(1);
+    expect(result.matches[0].query).toBe('som moo');
+    expect(result.matches[0].items).toEqual([
+      {
+        ...fermentedPork,
+        matchedBy: 'alias',
+        matchType: 'substring',
+        matchedValue: 'cured pork (som moo)',
+      },
+    ]);
+  });
+
+  it('groups results per input query, preserving duplicates and original order', async () => {
+    mockGet.mockResolvedValue(paginatedFoods([{ id: 'food-1', name: 'basil', aliases: [] }]));
+
+    const result = await getFoodMatches(['basil', 'nonexistent', 'basil']);
+
+    expect(result.matches.map((m) => m.query)).toEqual(['basil', 'nonexistent', 'basil']);
+    expect(result.matches[0].items).toHaveLength(1);
+    expect(result.matches[1].items).toHaveLength(0);
+    expect(result.matches[2].items).toHaveLength(1);
+  });
+
+  it('clamps an out-of-range maxMatchesPerQuery instead of rejecting', async () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({ id: `${i}`, name: `basil-${i}`, aliases: [] }));
+    mockGet.mockResolvedValue(paginatedFoods(many));
+
+    const result = await getFoodMatches(['basil'], { maxMatchesPerQuery: 1000 });
+    expect(result.matches[0].items.length).toBeLessThanOrEqual(25); // MAX_MATCHES_PER_QUERY_CAP
+  });
+
+  it('propagates a validation error without the generic "Unable to look up" wrapper', async () => {
+    await expect(getFoodMatches([])).rejects.toThrow(/At least one query is required/);
+    expect(mockGet).not.toHaveBeenCalled();
+  });
+
+  it('does not fail the whole call when the underlying request fails — reports a per-query error instead', async () => {
+    mockGet.mockRejectedValue(new MealieApiError(500, 'Internal Server Error'));
+
+    const result = await getFoodMatches(['basil']);
+
+    expect(result.matches[0].items).toEqual([]);
+    expect(result.matches[0].error).toMatch(/500/);
+  });
+
+  it('never calls create/update/delete endpoints — read-only', async () => {
+    mockGet.mockResolvedValue(paginatedFoods([]));
+    await getFoodMatches(['basil']);
+    expect(mockPost).not.toHaveBeenCalled();
+    expect(mockPut).not.toHaveBeenCalled();
+    expect(mockDelete).not.toHaveBeenCalled();
+  });
+});
+
+describe('getFoodMatches — truncated regression (live "pepper" report)', () => {
+  function paginatedFoods(items: Record<string, unknown>[]) {
+    return { items, total: items.length, page: 1, size: items.length };
+  }
+
+  // Live report: get_food_matches({ queries: ["pepper"], maxMatchesPerQuery: 1 or 5 }) returned
+  // truncated: false even though get_foods(search: "pepper") shows 49 total matches — `truncated` was
+  // only tracking whether Mealie's own response page was cut short, not whether this tool's own
+  // maxMatchesPerQuery cap discarded candidates it already had ranked locally.
+  const manyPepperFoods = Array.from({ length: 49 }, (_, i) => ({
+    id: `pepper-${i}`,
+    name: i === 0 ? 'black pepper' : `pepper variety ${i}`,
+    aliases: [],
+  }));
+
+  it('reports truncated: true when more candidates were found than maxMatchesPerQuery, even though the full set was retrieved in one page', async () => {
+    mockGet.mockResolvedValue(paginatedFoods(manyPepperFoods)); // total === items.length: retrieval itself was complete
+
+    const result = await getFoodMatches(['pepper'], { maxMatchesPerQuery: 1 });
+
+    expect(result.matches[0].items).toHaveLength(1);
+    expect(result.matches[0].items[0].name).toBe('black pepper');
+    expect(result.matches[0].truncated).toBe(true);
+
+    const resultFive = await getFoodMatches(['pepper'], { maxMatchesPerQuery: 5 });
+    expect(resultFive.matches[0].items).toHaveLength(5);
+    expect(resultFive.matches[0].truncated).toBe(true);
+  });
+
+  it('reports truncated: false when the candidate count exactly equals maxMatchesPerQuery', async () => {
+    mockGet.mockResolvedValue(paginatedFoods(manyPepperFoods.slice(0, 5)));
+
+    const result = await getFoodMatches(['pepper'], { maxMatchesPerQuery: 5 });
+
+    expect(result.matches[0].items).toHaveLength(5);
+    expect(result.matches[0].truncated).toBe(false);
+  });
+
+  it('reports truncated: false when the candidate count is below maxMatchesPerQuery', async () => {
+    mockGet.mockResolvedValue(paginatedFoods(manyPepperFoods.slice(0, 2)));
+
+    const result = await getFoodMatches(['pepper'], { maxMatchesPerQuery: 5 });
+
+    expect(result.matches[0].items).toHaveLength(2);
+    expect(result.matches[0].truncated).toBe(false);
+  });
+});
+
+describe('getFoodMatches — input sanitization', () => {
+  function paginatedFoods(items: Record<string, unknown>[]) {
+    return { items, total: items.length, page: 1, size: items.length };
+  }
+
+  it.each([
+    ["chef's knife", 'apostrophe'],
+    ['100% free', 'percent sign'],
+    ['snake_case', 'underscore'],
+    ['say "hi"', 'double quote'],
+    ['cheese (cheddar or mozzarella)', 'parentheses'],
+    ['crème brûlée 🧈', 'unicode'],
+  ])('does not throw and issues a well-formed request for a query containing a %s', async (query) => {
+    mockGet.mockResolvedValue(paginatedFoods([]));
+    await expect(getFoodMatches([query])).resolves.toBeDefined();
+    expect(mockGet).toHaveBeenCalledTimes(1);
+
+    const [, params] = mockGet.mock.calls[0];
+    // The constructed filter must remain a single well-formed queryFilter string: no unescaped
+    // double quote survives from the input (Mealie's grammar has no escape for one), keeping the
+    // quoted-region parity that the rest of the filter string relies on intact.
+    const queryFilter = params?.queryFilter ?? '';
+    const quoteCount = (queryFilter.match(/"/g) ?? []).length;
+    expect(quoteCount % 2).toBe(0);
+  });
+
+  it('rejects an all-whitespace query', async () => {
+    await expect(getFoodMatches(['   '])).rejects.toThrow(/cannot be blank/);
+  });
+
+  it('treats a query of only quote/wildcard characters as unmatchable rather than erroring', async () => {
+    const result = await getFoodMatches(['"%_']);
+    expect(mockGet).not.toHaveBeenCalled();
+    expect(result.matches[0].items).toEqual([]);
+  });
+
+  it('rejects a query longer than the maximum length', async () => {
+    await expect(getFoodMatches(['a'.repeat(201)])).rejects.toThrow(/at most \d+ characters/);
+  });
+
+  it('rejects more than the maximum number of queries per call', async () => {
+    const tooMany = Array.from({ length: 26 }, (_, i) => `q${i}`);
+    await expect(getFoodMatches(tooMany)).rejects.toThrow(/At most 25 queries/);
   });
 });

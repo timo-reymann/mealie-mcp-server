@@ -7,8 +7,9 @@
 | Categories | 7 |
 | Tags | 7 |
 | Shopping Lists | 13 |
-| Foods | 5 |
-| **Total** | **53** |
+| Foods | 6 |
+| Units | 6 |
+| **Total** | **60** |
 
 ## Recipe Operations (16)
 
@@ -51,10 +52,20 @@
 - `add_recipe_to_shopping_list`, `remove_recipe_from_shopping_list`
 - `get_shopping_list_items`, `create_shopping_list_item`, `create_shopping_list_items_bulk`, `update_shopping_list_item`, `delete_shopping_list_item`, `delete_shopping_list_items_bulk`
 
-## Food Operations (5)
+## Food Operations (6)
 
-- `get_foods` — `GET /api/foods` (paginated, search matches name/aliases per Mealie's behavior)
+- `get_foods` — `GET /api/foods` (paginated; `search` matches `name`/`pluralName` only — **not** aliases)
 - `get_food` — `GET /api/foods/{foodId}`
+- `get_food_matches` — `GET /api/foods?queryFilter=...` (read-only batch candidate lookup for multiple food concepts in one call, checking `name`, `pluralName`, and aliases). See [Resolving Several Foods or Units at Once](./WORKFLOWS.md#resolving-several-foods-or-units-at-once)
 - `create_food` — `POST /api/foods`; converts `aliases: string[]` to Mealie's `{ name }[]` alias shape
 - `update_food` — `GET /api/foods/{foodId}` to fetch the current record, merged with the requested changes (Mealie's `PUT` is a full replace of the create-shape fields), then `PUT /api/foods/{foodId}`; the existing `id` is always echoed back (Mealie's update schema includes it and defaults to `null` if omitted, which Mealie then writes into the row), while response-only fields (`label`, `createdAt`, `updatedAt`) are stripped before the `PUT`
 - `delete_food` — `DELETE /api/foods/{foodId}`
+
+## Unit Operations (6)
+
+- `get_units` — `GET /api/units` (paginated, search matches name/pluralName/abbreviation/pluralAbbreviation per Mealie's behavior — not aliases)
+- `get_unit` — `GET /api/units/{unitId}`
+- `get_unit_matches` — `GET /api/units?queryFilter=...` (read-only batch candidate lookup for multiple unit concepts in one call, checking `name`, `pluralName`, `abbreviation`, `pluralAbbreviation`, and aliases). See [Resolving Several Foods or Units at Once](./WORKFLOWS.md#resolving-several-foods-or-units-at-once)
+- `create_unit` — `POST /api/units`; converts `aliases: string[]` to Mealie's `{ name }[]` alias shape. Mealie itself (not this tool) auto-populates `standardQuantity`/`standardUnit` when the new unit's name/abbreviation matches one of its built-in standardized units, unless both are already supplied
+- `update_unit` — `GET /api/units/{unitId}` to fetch the current record, merged with the requested changes (Mealie's `PUT` is a full replace of the create-shape fields), then `PUT /api/units/{unitId}`; the existing `id` is echoed back defensively (mirroring `update_food`), while response-only fields (`createdAt`, `updatedAt`) are stripped before the `PUT`
+- `delete_unit` — `DELETE /api/units/{unitId}`

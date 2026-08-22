@@ -62,8 +62,9 @@ const recipeIngredientInputSchema = z.object({
     .uuid()
     .optional()
     .describe(
-      'UUID of an existing food (see get_foods/get_food). Must be given together with foodName — never alone. ' +
-        'This tool never looks up or creates foods; resolve the food first.',
+      'UUID of an existing food (see get_food_matches for resolving multiple already-interpreted concepts at ' +
+        'once, or get_foods/get_food for a single manual lookup). Must be given together with foodName — never ' +
+        'alone. This tool never looks up or creates foods; resolve the food first.',
     ),
   foodName: z.string().optional().describe('Human-readable name of the food identified by foodId. Required whenever foodId is given.'),
   note: z.string().nullable().optional().describe('Free-text note for this ingredient line.'),
@@ -392,7 +393,9 @@ export function registerRecipeTools(server: McpServer) {
       'recipe update (PATCH or PUT), including this one — instruction text/title/summary/ingredient-references ' +
       'are preserved correctly, only the IDs change. Low-level write primitive: it does not parse ingredient ' +
       'text and does not look up or create foods/units — foodId/unitId must already reference existing Mealie ' +
-      'entities (resolve them first with get_foods/get_food or Mealie\'s unit endpoints). The ingredients array ' +
+      'entities, resolved first with get_food_matches/get_unit_matches (batch, alias-aware lookup for several ' +
+      'already-interpreted concepts at once — the normal path after parsing ingredient text) or get_foods/' +
+      'get_food/get_units/get_unit for a single manual lookup. The ingredients array ' +
       'is the recipe\'s complete new ingredient list, not a patch: any ingredient not included is removed, and ' +
       'an empty array clears all ingredients. Call get_recipe_detailed first to see the recipe\'s current ' +
       'ingredients, referenceIds, and other fields before replacing them. Note: each ingredient\'s "display" ' +
