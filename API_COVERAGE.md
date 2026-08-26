@@ -3,13 +3,13 @@
 | Category | Tools |
 |---|---|
 | Recipes | 17 |
-| Meal Plans | 5 |
+| Meal Plans | 6 |
 | Categories | 7 |
 | Tags | 7 |
 | Shopping Lists | 13 |
 | Foods | 6 |
 | Units | 6 |
-| **Total** | **61** |
+| **Total** | **62** |
 
 ## Recipes Operations (17)
 
@@ -72,7 +72,7 @@
 - `update_recipe_taxonomy_batch` — GET /api/organizers/categories, POST /api/organizers/categories, GET /api/organizers/tags, POST /api/organizers/tags, GET /api/recipes/{slug}, PATCH /api/recipes/{slug}
   Runs update_recipe_taxonomy for multiple recipes with bounded concurrency (5 at a time), returning a 
 
-## Meal Plans Operations (5)
+## Meal Plans Operations (6)
 
 - `create_mealplan` — POST /api/households/mealplans
   Creates a single meal plan entry for a given date.
@@ -92,6 +92,10 @@
 
 - `get_todays_mealplan` — GET /api/households/mealplans/today
   Returns today\
+
+- `patch_mealplan` — DELETE /api/households/mealplans/{id}, GET /api/households/mealplans/{id}, PUT /api/households/mealplans/{id}, POST /api/households/mealplans
+  Performs a batch of mixed operations on meal plan entries in a single call. Use this to move recipes between meal types, update entries, or add new ones.
+  Params: `action`, `id`, `date`, `recipeId`, `title`
 
 ## Categories Operations (7)
 
