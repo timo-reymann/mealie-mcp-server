@@ -185,8 +185,3 @@ yarn lint
 
 [MIT](./LICENSE)
 
-
-
-
-
-

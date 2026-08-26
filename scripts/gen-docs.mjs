@@ -276,7 +276,7 @@ function updateReadme(section) {
 
   const before = readme.substring(0, readme.indexOf(beginMarker) + beginMarker.length);
   const after = readme.substring(readme.indexOf(endMarker));
-  const updated = `${before}\n${section}\n${after}`;
+  const updated = `${before}\n${section}\n${after}`.replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
   writeRel('README.md', updated);
   log('Updated README.md');
 }
