@@ -1044,3 +1044,269 @@ describe('updateRecipeIngredientsBatch — concurrency', () => {
     expect(result.results.map((r) => r.slug)).toEqual(['recipe-0', 'recipe-1', 'recipe-2', 'recipe-3', 'recipe-4']);
   });
 });
+
+describe('updateRecipeIngredientsBatch — basic behavior', () => {
+  it('updates two recipes successfully, preserving input order and reporting counts', async () => {
+    const result = await updateRecipeIngredientsBatch([
+      { slug: 'recipe-a', ingredients: [{ note: 'flour' }, { note: 'sugar' }] },
+      { slug: 'recipe-b', ingredients: [{ note: 'butter' }] },
+    ]);
+
+    expect(result.requestedCount).toBe(2);
+    expect(result.succeededCount).toBe(2);
+    expect(result.failedCount).toBe(0);
+    expect(result.apiRequestCount).toBe(4);
+    expect(result.results.map((r) => r.slug)).toEqual(['recipe-a', 'recipe-b']);
+    expect(result.results[0]).toEqual({ slug: 'recipe-a', success: true, ingredientCount: 2 });
+    expect(result.results[1]).toEqual({ slug: 'recipe-b', success: true, ingredientCount: 1 });
+    expect(mockPatchRecipe).toHaveBeenCalledTimes(2);
+  });
+
+  it('sends only recipeIngredient for each recipe, leaving other fields untouched', async () => {
+    await updateRecipeIngredientsBatch([
+      { slug: 'recipe-a', ingredients: [{ note: 'flour' }] },
+      { slug: 'recipe-b', ingredients: [{ note: 'butter' }] },
+    ]);
+
+    for (const [, payload] of mockPatchRecipe.mock.calls) {
+      expect(Object.keys(payload)).toEqual(['recipeIngredient']);
+    }
+  });
+
+  it('preserves supplied referenceId values exactly, same as the singular tool', async () => {
+    await updateRecipeIngredientsBatch([
+      { slug: 'recipe-a', ingredients: [{ note: 'flour', referenceId: 'ref-1' }] },
+    ]);
+
+    const [, payload] = mockPatchRecipe.mock.calls[0];
+    const ingredients = payload.recipeIngredient as Record<string, unknown>[];
+    expect(ingredients[0].referenceId).toBe('ref-1');
+  });
+
+  it('does not touch unrelated instruction/category/tag fields (payload is recipeIngredient only)', async () => {
+    await updateRecipeIngredientsBatch([{ slug: 'recipe-a', ingredients: [{ note: 'flour' }] }]);
+    const [, payload] = mockPatchRecipe.mock.calls[0];
+    expect(payload).not.toHaveProperty('recipeInstructions');
+    expect(payload).not.toHaveProperty('recipeCategory');
+    expect(payload).not.toHaveProperty('tags');
+  });
+
+  it('does not return full recipe payloads for successful entries — only a compact summary', async () => {
+    mockPatchRecipe.mockResolvedValue({
+      slug: 'recipe-a',
+      recipeIngredient: [{ note: 'flour' }],
+      name: 'Some Recipe',
+      description: 'A long description',
+      nutrition: { calories: '100' },
+    });
+
+    const result = await updateRecipeIngredientsBatch([{ slug: 'recipe-a', ingredients: [{ note: 'flour' }] }]);
+
+    expect(result.results[0]).toEqual({ slug: 'recipe-a', success: true, ingredientCount: 1 });
+    expect(result.results[0]).not.toHaveProperty('name');
+    expect(result.results[0]).not.toHaveProperty('nutrition');
+  });
+});
+
+describe('updateRecipeIngredientsBatch — failure isolation', () => {
+  it('recipe 2 fails with 404, recipes 1 and 3 stay successful', async () => {
+    mockPatchRecipe.mockImplementation((slug: string) => {
+      if (slug === 'recipe-2') {
+        return Promise.reject(new MealieApiError(404, 'Not Found'));
+      }
+      return Promise.resolve({ slug, recipeIngredient: [{ note: 'persisted' }] });
+    });
+
+    const result = await updateRecipeIngredientsBatch([
+      { slug: 'recipe-1', ingredients: [{ note: 'a' }] },
+      { slug: 'recipe-2', ingredients: [{ note: 'b' }] },
+      { slug: 'recipe-3', ingredients: [{ note: 'c' }] },
+    ]);
+
+    expect(result.succeededCount).toBe(2);
+    expect(result.failedCount).toBe(1);
+    expect(result.results[0]).toMatchObject({ slug: 'recipe-1', success: true });
+    expect(result.results[2]).toMatchObject({ slug: 'recipe-3', success: true });
+    const failed = result.results[1];
+    expect(failed.success).toBe(false);
+    if (!failed.success) {
+      expect(failed.slug).toBe('recipe-2');
+      expect(failed.error.status).toBe(404);
+      expect(failed.error.message).toMatch(/404/);
+    }
+  });
+
+  it('recipe 2 fails with 422, siblings still succeed', async () => {
+    mockPatchRecipe.mockImplementation((slug: string) => {
+      if (slug === 'recipe-2') {
+        return Promise.reject(new MealieApiError(422, 'Unprocessable Entity'));
+      }
+      return Promise.resolve({ slug, recipeIngredient: [{ note: 'persisted' }] });
+    });
+
+    const result = await updateRecipeIngredientsBatch([
+      { slug: 'recipe-1', ingredients: [{ note: 'a' }] },
+      { slug: 'recipe-2', ingredients: [{ note: 'b' }] },
+      { slug: 'recipe-3', ingredients: [{ note: 'c' }] },
+    ]);
+
+    expect(result.results.filter((r) => r.success)).toHaveLength(2);
+    const failed = result.results.find((r) => r.slug === 'recipe-2');
+    expect(failed?.success).toBe(false);
+    if (failed && !failed.success) {
+      expect(failed.error.status).toBe(422);
+    }
+  });
+
+  it('recipe 2 fails with 502 (transient upstream failure), siblings still succeed', async () => {
+    mockPatchRecipe.mockImplementation((slug: string) => {
+      if (slug === 'recipe-2') {
+        return Promise.reject(new MealieApiError(502, 'Bad Gateway'));
+      }
+      return Promise.resolve({ slug, recipeIngredient: [{ note: 'persisted' }] });
+    });
+
+    const result = await updateRecipeIngredientsBatch([
+      { slug: 'recipe-1', ingredients: [{ note: 'a' }] },
+      { slug: 'recipe-2', ingredients: [{ note: 'b' }] },
+      { slug: 'recipe-3', ingredients: [{ note: 'c' }] },
+    ]);
+
+    expect(result.results.filter((r) => r.success).map((r) => r.slug)).toEqual(['recipe-1', 'recipe-3']);
+    const failed = result.results.find((r) => r.slug === 'recipe-2');
+    expect(failed?.success).toBe(false);
+    if (failed && !failed.success) {
+      expect(failed.error.status).toBe(502);
+      expect(failed.error.message).toMatch(/Bad Gateway/);
+    }
+  });
+
+  it('a local validation error (mismatched foodId/foodName) on one recipe is isolated, not a batch-wide failure', async () => {
+    const result = await updateRecipeIngredientsBatch([
+      { slug: 'recipe-1', ingredients: [{ note: 'a' }] },
+      { slug: 'recipe-2', ingredients: [{ foodId: 'food-1' }] },
+      { slug: 'recipe-3', ingredients: [{ note: 'c' }] },
+    ]);
+
+    expect(result.succeededCount).toBe(2);
+    expect(result.failedCount).toBe(1);
+    const failed = result.results.find((r) => r.slug === 'recipe-2');
+    expect(failed?.success).toBe(false);
+    if (failed && !failed.success) {
+      expect(failed.error.message).toMatch(/foodName/);
+    }
+  });
+
+  it('one failed item does not roll back or prevent previously/subsequently successful writes', async () => {
+    mockPatchRecipe.mockImplementation((slug: string) => {
+      if (slug === 'recipe-2') {
+        return Promise.reject(new MealieApiError(502, 'Bad Gateway'));
+      }
+      return Promise.resolve({ slug, recipeIngredient: [{ note: 'persisted' }] });
+    });
+
+    await updateRecipeIngredientsBatch([
+      { slug: 'recipe-1', ingredients: [{ note: 'a' }] },
+      { slug: 'recipe-2', ingredients: [{ note: 'b' }] },
+      { slug: 'recipe-3', ingredients: [{ note: 'c' }] },
+    ]);
+
+    expect(mockPatchRecipe).toHaveBeenCalledWith('recipe-1', expect.anything());
+    expect(mockPatchRecipe).toHaveBeenCalledWith('recipe-3', expect.anything());
+  });
+});
+
+describe('updateRecipeIngredientsBatch — validation', () => {
+  it('rejects an empty batch', async () => {
+    await expect(updateRecipeIngredientsBatch([])).rejects.toThrow(RecipeIngredientsBatchValidationError);
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
+  });
+
+  it('rejects a batch larger than the maximum size', async () => {
+    const updates = Array.from({ length: RECIPE_INGREDIENTS_BATCH_MAX_SIZE + 1 }, (_, i) => ({
+      slug: `recipe-${i}`,
+      ingredients: [],
+    }));
+
+    await expect(updateRecipeIngredientsBatch(updates)).rejects.toThrow(RecipeIngredientsBatchValidationError);
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
+  });
+
+  it('accepts a batch at exactly the maximum size', async () => {
+    const updates = Array.from({ length: RECIPE_INGREDIENTS_BATCH_MAX_SIZE }, (_, i) => ({
+      slug: `recipe-${i}`,
+      ingredients: [],
+    }));
+
+    const result = await updateRecipeIngredientsBatch(updates);
+    expect(result.requestedCount).toBe(RECIPE_INGREDIENTS_BATCH_MAX_SIZE);
+    expect(result.succeededCount).toBe(RECIPE_INGREDIENTS_BATCH_MAX_SIZE);
+  });
+
+  it('rejects duplicate recipe slugs in the same batch', async () => {
+    await expect(
+      updateRecipeIngredientsBatch([
+        { slug: 'recipe-a', ingredients: [{ note: 'a' }] },
+        { slug: 'recipe-a', ingredients: [{ note: 'b' }] },
+      ]),
+    ).rejects.toThrow(RecipeIngredientsBatchValidationError);
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing/blank recipe identifier', async () => {
+    await expect(
+      updateRecipeIngredientsBatch([{ slug: '', ingredients: [{ note: 'a' }] }]),
+    ).rejects.toThrow(RecipeIngredientsBatchValidationError);
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
+  });
+
+  it('validates the whole batch before starting any write', async () => {
+    await expect(
+      updateRecipeIngredientsBatch([
+        { slug: 'recipe-a', ingredients: [{ note: 'a' }] },
+        { slug: 'recipe-a', ingredients: [{ note: 'b' }] },
+      ]),
+    ).rejects.toThrow();
+    expect(mockPatchRecipe).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateRecipeIngredientsBatch — concurrency', () => {
+  it('bounds concurrency instead of firing every request at once', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+
+    mockPatchRecipe.mockImplementation((slug: string) => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          inFlight--;
+          resolve({ slug, recipeIngredient: [] });
+        }, 5);
+      });
+    });
+
+    const updates = Array.from({ length: 12 }, (_, i) => ({ slug: `recipe-${i}`, ingredients: [{ note: 'x' }] }));
+    await updateRecipeIngredientsBatch(updates);
+
+    expect(maxInFlight).toBeLessThanOrEqual(5);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+
+  it('preserves input order in results regardless of completion order', async () => {
+    mockPatchRecipe.mockImplementation((slug: string) => {
+      // Reverse the delay so later-submitted recipes resolve first.
+      const index = Number(slug.split('-')[1]);
+      const delay = (5 - index) * 5;
+      return new Promise((resolve) => {
+        setTimeout(() => resolve({ slug, recipeIngredient: [] }), delay);
+      });
+    });
+
+    const updates = Array.from({ length: 5 }, (_, i) => ({ slug: `recipe-${i}`, ingredients: [{ note: 'x' }] }));
+    const result = await updateRecipeIngredientsBatch(updates);
+
+    expect(result.results.map((r) => r.slug)).toEqual(['recipe-0', 'recipe-1', 'recipe-2', 'recipe-3', 'recipe-4']);
+  });
+});
