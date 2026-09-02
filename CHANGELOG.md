@@ -1,3 +1,10 @@
+# [1.15.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.14.0...v1.15.0) (2026-09-02)
+
+
+### Features
+
+* add update_recipe_ingredients_batch for bounded-concurrency ingredient writes ([#22](https://github.com/timo-reymann/mealie-mcp-server/issues/22)) ([1cf5074](https://github.com/timo-reymann/mealie-mcp-server/commit/1cf50748e6de7a9e3c14211cbad918f45d06a5b4))
+
 # [1.14.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.13.0...v1.14.0) (2026-09-02)
 
 
