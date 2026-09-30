@@ -55,6 +55,30 @@ const tagsParamSchema = z
       'Passing an empty array with mode "replace" clears all tags from the recipe — use with care.',
   );
 
+const nutritionValueSchema = z.union([z.string(), z.number()]).nullable().optional();
+
+const nutritionParamSchema = z
+  .object({
+    calories: nutritionValueSchema.describe('Energy, in kcal.'),
+    proteinContent: nutritionValueSchema.describe('Protein, in grams.'),
+    carbohydrateContent: nutritionValueSchema.describe('Carbohydrates, in grams.'),
+    fatContent: nutritionValueSchema.describe('Total fat, in grams.'),
+    saturatedFatContent: nutritionValueSchema.describe('Saturated fat, in grams.'),
+    unsaturatedFatContent: nutritionValueSchema.describe('Unsaturated fat, in grams.'),
+    transFatContent: nutritionValueSchema.describe('Trans fat, in grams.'),
+    fiberContent: nutritionValueSchema.describe('Fiber, in grams.'),
+    sugarContent: nutritionValueSchema.describe('Sugar, in grams.'),
+    sodiumContent: nutritionValueSchema.describe('Sodium, in milligrams.'),
+    cholesterolContent: nutritionValueSchema.describe('Cholesterol, in milligrams.'),
+  })
+  .strict()
+  .describe(
+    'Per-serving nutrition values, given as bare numbers (e.g. 500 or "500") — Mealie appends its own unit ' +
+      'suffix (kcal, g, mg) when displaying them, so do not include units. Merged into the recipe\'s existing ' +
+      'nutrition: fields omitted here keep their current value, and null clears a field. Only set values the ' +
+      'source states; never estimate nutrition the source does not provide.',
+  );
+
 const recipeIngredientInputSchema = z.object({
   quantity: z
     .number()
@@ -450,19 +474,25 @@ export function registerRecipeTools(server: McpServer) {
   // @endpoints GET /api/recipes/{slug}, PATCH /api/recipes/{slug}
   server.tool(
     'patch_recipe',
-    'Partially updates a recipe. Also accepts optional categories/tags/taxonomyMode/createMissing for taxonomy assignment.',
+    'Partially updates a recipe. Also accepts optional categories/tags/taxonomyMode/createMissing for taxonomy assignment, and a nutrition object that is merged into the existing nutrition.',
     {
       slug: z.string(),
       name: z.string().optional(),
       description: z.string().optional(),
       recipeYield: z.string().optional(),
+      recipeYieldQuantity: z.number().nonnegative().optional().describe('Numeric part of the yield, e.g. 12 for "12 cookies" (recipeYield then holds "cookies").'),
+      recipeServings: z.number().nonnegative().optional().describe('Number of servings the recipe makes.'),
       totalTime: z.string().optional(),
+      prepTime: z.string().optional(),
+      performTime: z.string().optional().describe('Cooking time. Mealie labels this field "Cook Time" in its UI; its separate cookTime field is not displayed anywhere, so cook time belongs here.'),
+      orgURL: z.string().optional().describe('Original source URL of the recipe.'),
+      nutrition: nutritionParamSchema.optional(),
       categories: categoriesParamSchema.optional(),
       tags: tagsParamSchema.optional(),
       taxonomyMode: taxonomyModeSchema.optional(),
       createMissing: createMissingSchema.optional(),
     },
-    async ({ slug, categories, tags, taxonomyMode, createMissing, ...rest }) => {
+    async ({ slug, nutrition, categories, tags, taxonomyMode, createMissing, ...rest }) => {
       try {
         const data: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(rest)) {
@@ -471,9 +501,18 @@ export function registerRecipeTools(server: McpServer) {
           }
         }
 
+        const needsTaxonomy = categories !== undefined || tags !== undefined;
+        const recipe =
+          needsTaxonomy || nutrition !== undefined ? await recipesApi.getRecipe(slug) : undefined;
+
+        if (nutrition !== undefined && recipe) {
+          // Mealie's PATCH replaces nested objects wholesale, so unspecified nutrition fields would be wiped.
+          const existing = (recipe.nutrition ?? {}) as Record<string, unknown>;
+          data.nutrition = { ...existing, ...nutrition };
+        }
+
         let taxonomyChanges: { categories?: unknown; tags?: unknown } | undefined;
-        if (categories !== undefined || tags !== undefined) {
-          const recipe = await recipesApi.getRecipe(slug);
+        if (needsTaxonomy && recipe) {
           const outcome = await buildTaxonomyPatch(recipe, {
             categories,
             tags,

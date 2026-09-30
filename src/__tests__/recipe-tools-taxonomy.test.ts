@@ -118,6 +118,62 @@ describe('patch_recipe backward compatibility', () => {
   });
 });
 
+describe('patch_recipe metadata and nutrition fields', () => {
+  it('passes servings, times and orgURL through without fetching the recipe', async () => {
+    const handler = handlers.get('patch_recipe')!;
+    await handler({
+      slug: 'chicken-shawarma',
+      recipeServings: 4,
+      recipeYieldQuantity: 12,
+      prepTime: '15 minutes',
+      performTime: '30 minutes',
+      orgURL: 'https://example.com/shawarma',
+    });
+
+    expect(mockGetRecipe).not.toHaveBeenCalled();
+    expect(mockPatchRecipe).toHaveBeenCalledWith('chicken-shawarma', {
+      recipeServings: 4,
+      recipeYieldQuantity: 12,
+      prepTime: '15 minutes',
+      performTime: '30 minutes',
+      orgURL: 'https://example.com/shawarma',
+    });
+  });
+
+  it('merges nutrition into the existing values so unspecified fields are not wiped', async () => {
+    mockGetRecipe.mockResolvedValue({
+      ...baseRecipe(),
+      nutrition: { calories: '400', proteinContent: '30', fatContent: '12' },
+    });
+    const handler = handlers.get('patch_recipe')!;
+    await handler({ slug: 'chicken-shawarma', nutrition: { calories: 500, fatContent: null } });
+
+    expect(mockGetRecipe).toHaveBeenCalledWith('chicken-shawarma');
+    expect(mockPatchRecipe).toHaveBeenCalledWith('chicken-shawarma', {
+      nutrition: { calories: 500, proteinContent: '30', fatContent: null },
+    });
+  });
+
+  it('sets nutrition on a recipe that has none yet', async () => {
+    mockGetRecipe.mockResolvedValue({ ...baseRecipe(), nutrition: null });
+    const handler = handlers.get('patch_recipe')!;
+    await handler({ slug: 'chicken-shawarma', nutrition: { calories: '500' } });
+
+    expect(mockPatchRecipe).toHaveBeenCalledWith('chicken-shawarma', { nutrition: { calories: '500' } });
+  });
+
+  it('fetches the recipe once when nutrition and taxonomy are patched together', async () => {
+    const handler = handlers.get('patch_recipe')!;
+    await handler({ slug: 'chicken-shawarma', nutrition: { calories: 500 }, categories: ['Dessert'] });
+
+    expect(mockGetRecipe).toHaveBeenCalledTimes(1);
+    expect(mockPatchRecipe).toHaveBeenCalledTimes(1);
+    const [, patchData] = mockPatchRecipe.mock.calls[0];
+    expect(patchData).toHaveProperty('nutrition', { calories: 500 });
+    expect(patchData).toHaveProperty('recipeCategory');
+  });
+});
+
 describe('patch_recipe with taxonomy fields', () => {
   it('fetches the recipe and merges category/tag changes into a single patch call', async () => {
     const handler = handlers.get('patch_recipe')!;

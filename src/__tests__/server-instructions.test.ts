@@ -132,9 +132,14 @@ describe('MEALIE_SERVER_INSTRUCTIONS Recipe Creation and Import', () => {
     expect(MEALIE_SERVER_INSTRUCTIONS).toContain('leave `totalTime` unset rather than guessing');
   });
 
-  it('is honest that source-URL preservation is a current capability gap, not to be papered over', () => {
-    expect(MEALIE_SERVER_INSTRUCTIONS).toContain('The current toolset does not expose Mealie\'s source-URL field');
-    expect(MEALIE_SERVER_INSTRUCTIONS).toContain('don\'t default to stuffing the URL into `description`');
+  it('routes component times to prepTime/performTime and keeps nutrition source-faithful', () => {
+    expect(MEALIE_SERVER_INSTRUCTIONS).toContain('a stated cook time in `performTime`');
+    expect(MEALIE_SERVER_INSTRUCTIONS).toContain('Set `nutrition` only with values the source states');
+  });
+
+  it('preserves the source URL in orgURL rather than the description', () => {
+    expect(MEALIE_SERVER_INSTRUCTIONS).toContain('**Preserve the source URL** in `orgURL`');
+    expect(MEALIE_SERVER_INSTRUCTIONS).toContain('don\'t stuff the URL into `description`');
   });
 
   it('requires verification after creation/import via a get_recipe_detailed re-read', () => {
