@@ -1,4 +1,4 @@
-# Syntax=docker/dockerfile:1.4
+# Syntax=docker/dockerfile:1.28
 
 # Build stage
 FROM node:22-alpine AS builder
