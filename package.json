@@ -48,14 +48,14 @@
     "@semantic-release/github": "^12",
     "@semantic-release/npm": "^13",
     "@types/node": "^22",
-    "@vitest/coverage-v8": "^4.1.11",
+    "@vitest/coverage-v8": "^5.0.0",
     "eslint": "^9",
     "husky": "^9.1.7",
     "semantic-release": "^25",
     "tsx": "^4",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "release": {
     "branches": [
