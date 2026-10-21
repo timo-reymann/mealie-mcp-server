@@ -53,7 +53,7 @@ jobs:
       - run: yarn build
       - name: Release
         id: semantic
-        uses: cycjimmy/semantic-release-action@v7.1.2
+        uses: cycjimmy/semantic-release-action@v8.1.0
         with:
           semantic_version: 25
         env:
