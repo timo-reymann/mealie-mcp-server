@@ -1,3 +1,10 @@
+# [2.1.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v2.0.0...v2.1.0) (2026-10-25)
+
+
+### Features
+
+* Update to node 26 ([8e920ad](https://github.com/timo-reymann/mealie-mcp-server/commit/8e920adeba51037f20844aed2028263ae5846427))
+
 # [2.0.0](https://github.com/timo-reymann/mealie-mcp-server/compare/v1.22.0...v2.0.0) (2026-10-09)
 
 
