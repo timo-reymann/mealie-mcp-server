@@ -800,9 +800,9 @@
     p-reduce "^3.0.0"
 
 "@semantic-release/github@^12", "@semantic-release/github@^12.0.0":
-  version "12.0.10"
-  resolved "https://registry.yarnpkg.com/@semantic-release/github/-/github-12.0.10.tgz#a0489f6a2d30a977e38b680ae2ef7524b59be8ad"
-  integrity sha512-QskygvpX8hFx9UEbqJ+C46OIhaJjsysNQ8PYJPuRDc/ek5+dh8WYGD1ofUahCcGLAOmnnwZTcmCJCEXM8XxhRw==
+  version "12.0.11"
+  resolved "https://registry.yarnpkg.com/@semantic-release/github/-/github-12.0.11.tgz#23fc813ef8771baa9362c97619851cae87f63435"
+  integrity sha512-/8JPlFOV8he+gs+kS8Gx0tNWBboCRBd1q3y7pQhYwtrBL0CzDe9yzguZZAfnjGM2duWYB3rEYn9BdYLu9x00cg==
   dependencies:
     "@octokit/core" "^7.0.0"
     "@octokit/plugin-paginate-rest" "^15.0.0"
@@ -3173,9 +3173,9 @@ mime-types@^3.0.0, mime-types@^3.0.2:
     mime-db "^1.54.0"
 
 mime@^4.0.0:
-  version "4.1.1"
-  resolved "https://registry.yarnpkg.com/mime/-/mime-4.1.1.tgz#74423f8333766bf8ab91d9543c73bd864f3d5c38"
-  integrity sha512-YAApRsTpM2+gnUFHhRNGfkX8NK0V5xj1nyQLufGlwEI+eX4xRsTcel2IXDuMEGSGjBvzykNW4VuoEACgwYe7BQ==
+  version "4.1.2"
+  resolved "https://registry.yarnpkg.com/mime/-/mime-4.1.2.tgz#b5ffeeebd449031c39d830a26c2e90d619a84888"
+  integrity sha512-ikRzZ2RwbUVDyL9SsU0f2Phcmav4yq5r8faH5ZZKHtOZrMBLnrQOrj0uvqZ5R1uQnj+RO7Wcklw/lAf81mP9LQ==
 
 mimic-fn@^4.0.0:
   version "4.0.0"
@@ -4676,9 +4676,9 @@ undici@^6.23.0, undici@^6.25.0:
   integrity sha512-R+RODBqp6i2pPflGdq+xIOUkl+RNfGgHwoinecKu/JCuf2uO06cOKoDbI2P7Dn6KcswdKwrczbU6IYJ6K8X+wg==
 
 undici@^7.0.0:
-  version "7.30.0"
-  resolved "https://registry.yarnpkg.com/undici/-/undici-7.30.0.tgz#64a947266eb7e21dbeac8b99f8720feef308bbe0"
-  integrity sha512-dkrQXeHSaoamnItlYbmzG0wFYrM0ZwDxCIg0A7aKjTyyhh9svRzCNFEzV+Vm05/yehjCzjDZ31KXfGEjYSztDQ==
+  version "7.30.2"
+  resolved "https://registry.yarnpkg.com/undici/-/undici-7.30.2.tgz#26c6acb0ffe838f823511f8cb79a8d530652135e"
+  integrity sha512-mLyPQnHwUxaM/rideoK/+KL8DaAJLRl4aBCfmX444aCSLnIaomqPLtNRe2jdCYcsk5wZzXrDIQC8ZeYNRAYyIA==
 
 unicode-emoji-modifier-base@^1.0.0:
   version "1.0.0"
@@ -4730,9 +4730,9 @@ uri-js@^4.2.2:
     punycode "^2.1.0"
 
 url-join@^5.0.0:
-  version "5.1.1"
-  resolved "https://registry.yarnpkg.com/url-join/-/url-join-5.1.1.tgz#4a12e586625edee5c1c94e07a6a39978614eb11e"
-  integrity sha512-5+M4YX5pEFeXSdMyt3J5iXr949UC+j6yHRkZUEv6ljTusAfdCdS4pSTudnYGzYEbKkdK5xIE0E3i5xzIzoiFrQ==
+  version "5.2.0"
+  resolved "https://registry.yarnpkg.com/url-join/-/url-join-5.2.0.tgz#965f2e7b026375a07c46a4d918a8946d9edc6142"
+  integrity sha512-/tMVQdp/2eE90fGb6npbd2nLHH8jamzLLeZhLEKTz4Rc38wO5AeEuIhoWroWWfQJS50ZzL4Xod9JER/pJWTTEQ==
 
 util-deprecate@^1.0.2, util-deprecate@~1.0.1:
   version "1.0.2"
